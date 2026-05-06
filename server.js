@@ -72,7 +72,7 @@ app.use(fileUpload({
 app.get("/", (req, res) => {
     res.json({
         status: "success",    // A key to indicate the response status
-        message: "Welcome to our college service!", // Static message
+        message: "Welcome to our service!", // Static message
     });
 });
 

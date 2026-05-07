@@ -1,34 +1,46 @@
-import express from "express";
-import { registerAdmin, loginAdmin, getAllUsers, updateUser, deleteUser, getAdminProfile, createBanner, getAllBanners, deleteBanner, updateBanner, createCategory, getAllCategories, updateCategory, deleteCategory, setPriceConfig, getPriceConfig, updatePriceConfig, deletePriceConfig, assignStylist } from "../Controller/adminController.js";
+import express from 'express';
+import {
+  adminLogin,
+  getAllUsers,
+  getUserById,
+  updateUserById,
+  deleteUserById,
+  createBanners,
+  getAllBanners,
+  getBannerById,
+  updateBannerById,
+  deleteBannerById,
+  createCategory,
+  getAllCategories,
+  getCategoryById,
+  updateCategoryById,
+  deleteCategoryById,
+} from '../Controller/adminController.js';
+import { uploadBannerImages, uploadCategoryImage } from '../config/multerConfig.js';
 
 const router = express.Router();
 
-router.post("/register", registerAdmin);
-router.post("/login", loginAdmin);
+// Admin Auth (no token required)
+router.post('/login', adminLogin);
 
-router.get("/allusers", getAllUsers);
-router.put("/updateusers/:id", updateUser);
-router.delete("/deleteusers/:id", deleteUser);
+// User Management (no token required - since admin is already logged in via session)
+router.get('/users', getAllUsers);
+router.get('/users/:id', getUserById);
+router.put('/users/:id', updateUserById);
+router.delete('/users/:id', deleteUserById);
 
+// Banner Management
+router.post('/banners', uploadBannerImages, createBanners);
+router.get('/banners', getAllBanners);
+router.get('/banners/:id', getBannerById);
+router.put('/banners/:id', uploadCategoryImage, updateBannerById);
+router.delete('/banners/:id', deleteBannerById);
 
-router.get("/getprofile/:adminId", getAdminProfile);
-
-router.post("/createbanner", createBanner);
-router.get("/getallbanner", getAllBanners);
-router.delete("/deletebanner/:bannerId", deleteBanner);
-router.put("/updatebanner/:bannerId", updateBanner);
-
-router.post("/createcategory", createCategory);
-router.get("/allcategories", getAllCategories);
-router.put("/updatecategory/:categoryId", updateCategory);
-router.delete("/deletecategory/:categoryId", deleteCategory);
-
-
-router.post("/setprice-config", setPriceConfig);
-router.get("/allprice-config", getPriceConfig);
-router.put("/updateprice-config", updatePriceConfig);
-router.delete("/deleteprice-config", deletePriceConfig);
-router.put("/assign-stylist/:bookingId", assignStylist);
-
+// Category Management
+router.post('/categories', uploadCategoryImage, createCategory);
+router.get('/categories', getAllCategories);
+router.get('/categories/:id', getCategoryById);
+router.put('/categories/:id', uploadCategoryImage, updateCategoryById);
+router.delete('/categories/:id', deleteCategoryById);
 
 export default router;

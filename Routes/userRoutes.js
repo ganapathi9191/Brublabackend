@@ -1,88 +1,38 @@
 import express from 'express';
-import { 
-    registerUser,
-     createProfile, 
-     editProfileImage, 
-     getProfile,
-     verifyMobile,
-     resetPassword,
-     deleteAccount,
-     deleteUserAccount,
-     confirmDeleteAccount,
-     updateUser,
-     sendOtp,
-     verifyOtp,
-     getUserById,
-     resendOtp,
-     loginUser,
-     createDesignerProfile,
-     getAllDesigners,
-     getWishlist,
-     toggleWishlist,
-     getAllNotifications,
-     deleteNotifications,
-     bookStylist,
-     getMyStylistBookings,
-    } from '../Controller/UserController.js'; // Import UserController
+import {
+  loginRequest,
+  verifyLoginOtp,
+  register,
+  verifyRegisterOtp,
+  resendOtp,
+} from '../Controller/UserController.js';
+
 const router = express.Router();
 
-// Registration Route
-router.post('/register', registerUser);
+/**
+ * AUTH FLOW:
+ *
+ * LOGIN FLOW:
+ *   1. POST /api/auth/login           → check mobile, send OTP + token if exists
+ *   2. POST /api/auth/login/verify-otp → verify token + OTP (1234) → returns JWT
+ *
+ * REGISTER FLOW (only if mobile not found):
+ *   3. POST /api/auth/register           → create user, send OTP + token
+ *   4. POST /api/auth/register/verify-otp → verify token + OTP (1234) → returns JWT (auto-login)
+ *
+ * COMMON:
+ *   5. POST /api/auth/resend-otp → resend OTP for any flow
+ */
 
-router.post('/login', loginUser);
+// Login
+router.post('/login', loginRequest);
+router.post('/login/verify-otp', verifyLoginOtp);
 
-// 📲 Step 1: Send OTP
-router.post("/send-otp", sendOtp);
+// Register
+router.post('/register', register);
+router.post('/register/verify-otp', verifyRegisterOtp);
 
-
-router.post("/resend-otp", resendOtp);
-
-// 🔐 Step 2: Verify OTP
-router.post("/verify-otp", verifyOtp);
-
-// Login Route
-// Get user details (GET)
-router.put('/update-user/:userId', updateUser); 
-
-// Update user details (PUT)
-// Create a new profile with Form Data (including profile image)
-router.post('/create-profile/:userId', createProfile);  // Profile creation with userId in params
-
-// Edit the user profile by userId
-router.put('/edit-profile/:id', editProfileImage);  // Profile editing by userId
-
-// Get the user profile by userId
-router.get('/get-profile/:id', getProfile);  // Get profile by userId
-router.post('/verify', verifyMobile);  // Get profile by userId
-router.post('/reset-password', resetPassword);  // Get profile by userId
-router.delete('/deleteuser/:userId', deleteUserAccount);  
-router.post('/deleteaccount', deleteAccount)
-router.get('/confirm-delete-account/:token', confirmDeleteAccount);
-
-router.get('/myprofile/:userId', getUserById); 
-router.post("/createdesigner-profile/:userId", createDesignerProfile);
-
-router.get("/alllatestdesigners", getAllDesigners);
-
-router.post("/addwishlist/:userId/:designerId", toggleWishlist);
-router.get("/mywishlist/:userId", getWishlist);
-
-router.get("/allnotifications/:userId", getAllNotifications);
-router.delete("/deletenotifications/:userId", deleteNotifications);
-router.post("/book-stylist", bookStylist);
-
-router.get("/my-stylistbookings/:userId", getMyStylistBookings);
-
-
-
-
-
-
-
-
-
-
-
-
+// Common
+router.post('/resend-otp', resendOtp);
 
 export default router;

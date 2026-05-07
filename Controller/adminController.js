@@ -1,802 +1,402 @@
-import Admin from "../Models/Admin.js";
-import Banner from "../Models/Banner.js";
-import User from "../Models/User.js";
-import mongoose from 'mongoose';
-import fs from "fs";
-import Category from "../Models/Category.js";
-import PriceConfig from "../Models/PriceConfig.js";
+import Admin from '../Models/Admin.js';
+import User from '../Models/User.js';
+import Banner from '../Models/Banner.js';
+import Category from '../Models/Category.js';
+import bcrypt from 'bcrypt';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-
-
-const BASE_URL = 'http://localhost:4077'
-/**
- * ADMIN REGISTER
- */
-export const registerAdmin = async (req, res) => {
-  const { name, email, mobile, password } = req.body;
-
-  if (!email || !password) {
-    return res.status(400).json({ message: "Email and password are required" });
-  }
-
+// Helper function to delete file
+const deleteFile = (filePath) => {
   try {
-    const existingAdmin = await Admin.findOne({ email });
-
-    if (existingAdmin) {
-      return res.status(400).json({ message: "Admin already exists" });
+    const fullPath = path.join(__dirname, '..', filePath);
+    if (fs.existsSync(fullPath)) {
+      fs.unlinkSync(fullPath);
     }
-
-    const admin = new Admin({
-      name,
-      email,
-      mobile,
-      password, // ❌ no bcrypt
-    });
-
-    await admin.save();
-
-    return res.status(201).json({
-      message: "Admin registered successfully",
-      admin,
-    });
-
-  } catch (err) {
-    console.error("Register Admin Error:", err);
-    return res.status(500).json({ message: "Server error" });
+  } catch (error) {
+    console.error('Error deleting file:', error);
   }
 };
 
-/**
- * ADMIN LOGIN
- */
-export const loginAdmin = async (req, res) => {
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    return res.status(400).json({ message: "Email and password are required" });
-  }
-
+// ==================== ADMIN AUTH ====================
+export const adminLogin = async (req, res) => {
   try {
-    const admin = await Admin.findOne({ email });
+    const { email, password } = req.body;
 
-    if (!admin) {
-      return res.status(404).json({ message: "Admin not found" });
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: 'Email and password are required' });
     }
 
-    // ❌ plain password comparison
-    if (admin.password !== password) {
-      return res.status(401).json({ message: "Invalid password" });
+    const admin = await Admin.findOne({ email });
+    if (!admin) {
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, admin.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
     return res.status(200).json({
-      message: "Admin login successful",
-      admin,
+      success: true,
+      message: 'Admin login successful',
+      admin: {
+        id: admin._id,
+        email: admin.email,
+      },
     });
-
-  } catch (err) {
-    console.error("Login Admin Error:", err);
-    return res.status(500).json({ message: "Server error" });
+  } catch (error) {
+    console.error('adminLogin error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-
-
+// ==================== USER MANAGEMENT ====================
 export const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().sort({ createdAt: -1 });
+    const { role } = req.query;
+    let query = {};
+    
+    if (role && ['Tailor', 'Designer', 'User', 'Stylist'].includes(role)) {
+      query.role = role;
+    }
 
+    const users = await User.find(query).select('-otp -otpExpires -authToken -authTokenExpires');
+    
     return res.status(200).json({
       success: true,
       count: users.length,
       users,
     });
   } catch (error) {
-    console.error("Error in getAllUsers:", error);
-    return res.status(500).json({ message: "Server error" });
+    console.error('getAllUsers error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-
-
-export const updateUser = async (req, res) => {
+export const getUserById = async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      name,
-      email,
-      mobile,
-      aadhaarCardNumber,
-      password,
-      confirmPassword,
-    } = req.body;
-
-    if (password && password !== confirmPassword) {
-      return res.status(400).json({ message: "Passwords do not match" });
+    
+    const user = await User.findById(id).select('-otp -otpExpires -authToken -authTokenExpires');
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
-
-    const updatedUser = await User.findByIdAndUpdate(
-      id,
-      {
-        name,
-        email,
-        mobile,
-        aadhaarCardNumber,
-        password,
-        confirmPassword,
-      },
-      { new: true }
-    );
-
-    if (!updatedUser) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
+    
     return res.status(200).json({
-      message: "User updated successfully",
+      success: true,
+      user,
+    });
+  } catch (error) {
+    console.error('getUserById error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+export const updateUserById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email, mobile, role, isVerified } = req.body;
+    
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    if (name) user.name = name;
+    if (email) user.email = email;
+    if (mobile) user.mobile = mobile;
+    if (role && ['Tailor', 'Designer', 'User', 'Stylist'].includes(role)) user.role = role;
+    if (typeof isVerified === 'boolean') user.isVerified = isVerified;
+    
+    await user.save();
+    
+    const updatedUser = await User.findById(id).select('-otp -otpExpires -authToken -authTokenExpires');
+    
+    return res.status(200).json({
+      success: true,
+      message: 'User updated successfully',
       user: updatedUser,
     });
   } catch (error) {
-    console.error("Error in updateUser:", error);
-    return res.status(500).json({ message: "Server error" });
+    console.error('updateUserById error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-
-
-export const deleteUser = async (req, res) => {
+export const deleteUserById = async (req, res) => {
   try {
     const { id } = req.params;
-
-    const deletedUser = await User.findByIdAndDelete(id);
-
-    if (!deletedUser) {
-      return res.status(404).json({ message: "User not found" });
+    
+    const user = await User.findByIdAndDelete(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
-
+    
     return res.status(200).json({
-      message: "User deleted successfully",
+      success: true,
+      message: 'User deleted successfully',
     });
   } catch (error) {
-    console.error("Error in deleteUser:", error);
-    return res.status(500).json({ message: "Server error" });
+    console.error('deleteUserById error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-
-
-// GET Admin Profile by ID
-export const getAdminProfile = async (req, res) => {
-  const { adminId } = req.params;
-
-  if (!adminId) {
-    return res.status(400).json({ message: "Admin ID is required" });
-  }
-
+// ==================== BANNER MANAGEMENT ====================
+export const createBanners = async (req, res) => {
   try {
-    const admin = await Admin.findById(adminId);
-
-    if (!admin) {
-      return res.status(404).json({ message: "Admin not found" });
+    const files = req.files;
+    const { titles, descriptions } = req.body;
+    
+    if (!files || files.length === 0) {
+      return res.status(400).json({ success: false, message: 'At least one banner image is required' });
     }
-
-    return res.status(200).json({
-      message: "Admin profile fetched successfully",
-      admin: {
-        id: admin._id,
-        name: admin.name,
-        email: admin.email,
-        mobile: admin.mobile,
-        createdAt: admin.createdAt,
-        updatedAt: admin.updatedAt
-      },
-    });
-  } catch (err) {
-    console.error("Get Admin Profile Error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-};
-
-
-export const createBanner = async (req, res) => {
-  try {
-    console.log("👉 createBanner API HIT");
-
-    // 🔥 ensure folder exists
-    const uploadDir = "uploads/banner";
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+    
+    const banners = [];
+    
+    for (let i = 0; i < files.length; i++) {
+      const banner = new Banner({
+        image: files[i].path,
+        title: titles && titles[i] ? titles[i] : '',
+        description: descriptions && descriptions[i] ? descriptions[i] : '',
+      });
+      await banner.save();
+      banners.push(banner);
     }
-
-    if (!req.files || !req.files.images) {
-      return res.status(400).json({ message: "Images required" });
-    }
-
-    let images = req.files.images;
-
-    if (!Array.isArray(images)) {
-      images = [images];
-    }
-
-    let imagePaths = [];
-
-    for (let img of images) {
-      const fileName = Date.now() + "-" + img.name;
-      const uploadPath = `${uploadDir}/${fileName}`;
-
-      await img.mv(uploadPath);
-
-      imagePaths.push(`${BASE_URL}/uploads/banner/${fileName}`);
-    }
-
-    const banner = new Banner({ images: imagePaths });
-
-    await banner.save();
-
+    
     return res.status(201).json({
-      message: "Banner uploaded successfully",
-      banner
+      success: true,
+      message: `${banners.length} banner(s) created successfully`,
+      banners,
     });
-
   } catch (error) {
-    console.error("❌ CREATE BANNER ERROR 👉", error);
-
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message
-    });
+    console.error('createBanners error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
-
 
 export const getAllBanners = async (req, res) => {
-  console.log("👉 getAllBanners API HIT");
-
   try {
     const banners = await Banner.find().sort({ createdAt: -1 });
-
+    
     return res.status(200).json({
-      message: "Banners fetched successfully",
-      total: banners.length,
-      banners
+      success: true,
+      count: banners.length,
+      banners,
     });
-
   } catch (error) {
-    console.error("❌ GET BANNERS ERROR 👉", error);
-
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message
-    });
+    console.error('getAllBanners error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-
-export const deleteBanner = async (req, res) => {
-  console.log("👉 deleteBanner API HIT");
-
-  const { bannerId } = req.params;
-
+export const getBannerById = async (req, res) => {
   try {
-    const banner = await Banner.findById(bannerId);
-
+    const { id } = req.params;
+    
+    const banner = await Banner.findById(id);
     if (!banner) {
-      return res.status(404).json({
-        message: "Banner not found"
-      });
+      return res.status(404).json({ success: false, message: 'Banner not found' });
     }
-
-    await Banner.findByIdAndDelete(bannerId);
-
+    
     return res.status(200).json({
-      message: "Banner deleted successfully"
+      success: true,
+      banner,
     });
-
   } catch (error) {
-    console.error("❌ DELETE BANNER ERROR 👉", error);
-
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message
-    });
+    console.error('getBannerById error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-
-
-export const updateBanner = async (req, res) => {
+export const updateBannerById = async (req, res) => {
   try {
-    console.log("👉 updateBanner API HIT");
-    console.log("📌 Params:", req.params);
-
-    const { bannerId } = req.params;
-
-    const banner = await Banner.findById(bannerId);
-
+    const { id } = req.params;
+    const { title, description, isActive } = req.body;
+    const file = req.file;
+    
+    const banner = await Banner.findById(id);
     if (!banner) {
-      return res.status(404).json({
-        message: "Banner not found"
-      });
+      return res.status(404).json({ success: false, message: 'Banner not found' });
     }
-
-    // =========================
-    // 🟡 CHECK NEW IMAGES
-    // =========================
-    if (!req.files || !req.files.images) {
-      return res.status(400).json({
-        message: "New images required"
-      });
+    
+    if (title !== undefined) banner.title = title;
+    if (description !== undefined) banner.description = description;
+    if (isActive !== undefined) banner.isActive = isActive;
+    
+    if (file) {
+      deleteFile(banner.image);
+      banner.image = file.path;
     }
-
-    let images = req.files.images;
-
-    if (!Array.isArray(images)) {
-      images = [images];
-    }
-
-    let newImagePaths = [];
-
-    // =========================
-    // 🧹 OPTIONAL: DELETE OLD IMAGES FROM FOLDER
-    // =========================
-    if (banner.images && banner.images.length > 0) {
-      banner.images.forEach((imgUrl) => {
-        const path = imgUrl.replace(`${BASE_URL}/`, "");
-
-        if (fs.existsSync(path)) {
-          fs.unlinkSync(path);
-        }
-      });
-    }
-
-    // =========================
-    // 📤 UPLOAD NEW IMAGES
-    // =========================
-    for (let img of images) {
-      const fileName = Date.now() + "-" + img.name;
-      const uploadPath = `uploads/banner/${fileName}`;
-
-      await img.mv(uploadPath);
-
-      newImagePaths.push(`${BASE_URL}/uploads/banner/${fileName}`);
-    }
-
-    // =========================
-    // 💾 UPDATE DB
-    // =========================
-    banner.images = newImagePaths;
-
+    
     await banner.save();
-
+    
     return res.status(200).json({
-      message: "Banner updated successfully",
-      banner
+      success: true,
+      message: 'Banner updated successfully',
+      banner,
     });
-
   } catch (error) {
-    console.error("❌ UPDATE BANNER ERROR 👉", error);
-
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message
-    });
+    console.error('updateBannerById error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
+export const deleteBannerById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const banner = await Banner.findByIdAndDelete(id);
+    if (!banner) {
+      return res.status(404).json({ success: false, message: 'Banner not found' });
+    }
+    
+    deleteFile(banner.image);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Banner deleted successfully',
+    });
+  } catch (error) {
+    console.error('deleteBannerById error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
 
+// ==================== CATEGORY MANAGEMENT ====================
 export const createCategory = async (req, res) => {
   try {
-    console.log("👉 createCategory API HIT");
-
-    const { name, gender } = req.body;
-
-    if (!name || !gender) {
-      return res.status(400).json({
-        message: "Name and gender required",
-      });
+    const { name } = req.body;
+    const file = req.file;
+    
+    if (!name) {
+      return res.status(400).json({ success: false, message: 'Category name is required' });
     }
-
-    if (!req.files || !req.files.image) {
-      return res.status(400).json({
-        message: "Category image required",
-      });
+    
+    if (!file) {
+      return res.status(400).json({ success: false, message: 'Category image is required' });
     }
-
-    const image = req.files.image;
-
-    const fileName = Date.now() + "-" + image.name;
-    const uploadPath = `uploads/category/${fileName}`;
-
-    await image.mv(uploadPath);
-
+    
+    const existingCategory = await Category.findOne({ name });
+    if (existingCategory) {
+      deleteFile(file.path);
+      return res.status(409).json({ success: false, message: 'Category with this name already exists' });
+    }
+    
     const category = new Category({
       name,
-      gender, // ✅ added
-      image: `${BASE_URL}/uploads/category/${fileName}`,
+      image: file.path,
     });
-
+    
     await category.save();
-
+    
     return res.status(201).json({
-      message: "Category created successfully",
+      success: true,
+      message: 'Category created successfully',
       category,
     });
-
   } catch (error) {
-    console.error("❌ CREATE CATEGORY ERROR 👉", error);
-
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    console.error('createCategory error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
-
-
 
 export const getAllCategories = async (req, res) => {
   try {
-    console.log("👉 getAllCategories API HIT");
-    console.log("📌 Query:", req.query);
-
-    const { gender } = req.query;
-
-    // =========================
-    // 🟡 BUILD FILTER DYNAMICALLY
-    // =========================
-    let filter = {};
-
-    if (gender) {
-      filter.gender = gender; // male / female / unisex
-    }
-
-    const categories = await Category.find(filter).sort({
-      createdAt: -1,
-    });
-
+    const categories = await Category.find().sort({ createdAt: -1 });
+    
     return res.status(200).json({
-      message: "Categories fetched successfully",
-      total: categories.length,
-      filter: gender || "all",
+      success: true,
+      count: categories.length,
       categories,
     });
-
   } catch (error) {
-    console.error("❌ GET CATEGORY ERROR 👉", error);
-
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    console.error('getAllCategories error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-
-
-export const updateCategory = async (req, res) => {
+export const getCategoryById = async (req, res) => {
   try {
-    console.log("👉 updateCategory API HIT");
-
-    const { categoryId } = req.params;
-    const { name, gender } = req.body;
-
-    const category = await Category.findById(categoryId);
-
+    const { id } = req.params;
+    
+    const category = await Category.findById(id);
     if (!category) {
-      return res.status(404).json({
-        message: "Category not found",
-      });
+      return res.status(404).json({ success: false, message: 'Category not found' });
     }
-
-    // =========================
-    // 📝 UPDATE TEXT FIELDS
-    // =========================
-    if (name) {
-      category.name = name;
-    }
-
-    if (gender) {
-      category.gender = gender; // ✅ added
-    }
-
-    // =========================
-    // 🖼️ UPDATE IMAGE (optional)
-    // =========================
-    if (req.files && req.files.image) {
-      const image = req.files.image;
-
-      const fileName = Date.now() + "-" + image.name;
-      const uploadPath = `uploads/category/${fileName}`;
-
-      await image.mv(uploadPath);
-
-      // 🧹 delete old image (optional but good)
-      const oldPath = category.image?.replace(`${BASE_URL}/`, "");
-
-      if (oldPath && fs.existsSync(oldPath)) {
-        fs.unlinkSync(oldPath);
-      }
-
-      category.image = `${BASE_URL}/uploads/category/${fileName}`;
-    }
-
-    await category.save();
-
+    
     return res.status(200).json({
-      message: "Category updated successfully",
+      success: true,
       category,
     });
-
   } catch (error) {
-    console.error("❌ UPDATE CATEGORY ERROR 👉", error);
-
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    console.error('getCategoryById error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-
-export const deleteCategory = async (req, res) => {
+export const updateCategoryById = async (req, res) => {
   try {
-    console.log("👉 deleteCategory API HIT");
-
-    const { categoryId } = req.params;
-
-    const category = await Category.findById(categoryId);
-
+    const { id } = req.params;
+    const { name } = req.body;
+    const file = req.file;
+    
+    const category = await Category.findById(id);
     if (!category) {
-      return res.status(404).json({ message: "Category not found" });
+      if (file) deleteFile(file.path);
+      return res.status(404).json({ success: false, message: 'Category not found' });
     }
-
-    // delete image from folder (optional)
-    const imagePath = category.image.replace(`${BASE_URL}/`, "");
-
-    if (fs.existsSync(imagePath)) {
-      fs.unlinkSync(imagePath);
-    }
-
-    await Category.findByIdAndDelete(categoryId);
-
-    return res.status(200).json({
-      message: "Category deleted successfully",
-    });
-
-  } catch (error) {
-    console.error("❌ DELETE CATEGORY ERROR 👉", error);
-
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
-  }
-};
-
-
-
-// =======================
-// 💰 CREATE / UPDATE PRICE CONFIG
-// =======================
-export const setPriceConfig = async (req, res) => {
-  try {
-    console.log("👉 setPriceConfig API HIT");
-
-    const { tailorBookingPrice, stylistBookingPrice } = req.body;
-
-    let config = await PriceConfig.findOne();
-
-    // 🟡 if not exists → create
-    if (!config) {
-      config = new PriceConfig({
-        tailorBookingPrice,
-        stylistBookingPrice,
-      });
-    } else {
-      // 🟢 update existing
-      if (tailorBookingPrice !== undefined) {
-        config.tailorBookingPrice = tailorBookingPrice;
+    
+    if (name && name !== category.name) {
+      const existingCategory = await Category.findOne({ name, _id: { $ne: id } });
+      if (existingCategory) {
+        if (file) deleteFile(file.path);
+        return res.status(409).json({ success: false, message: 'Category with this name already exists' });
       }
-
-      if (stylistBookingPrice !== undefined) {
-        config.stylistBookingPrice = stylistBookingPrice;
-      }
+      category.name = name;
     }
-
-    await config.save();
-
+    
+    if (file) {
+      deleteFile(category.image);
+      category.image = file.path;
+    }
+    
+    await category.save();
+    
     return res.status(200).json({
-      message: "Price config saved successfully",
-      config,
+      success: true,
+      message: 'Category updated successfully',
+      category,
     });
-
   } catch (error) {
-    console.error("❌ PRICE CONFIG ERROR 👉", error);
-
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    console.error('updateCategoryById error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
 
-
-
-export const getPriceConfig = async (req, res) => {
+export const deleteCategoryById = async (req, res) => {
   try {
-    console.log("👉 getPriceConfig API HIT");
-
-    const config = await PriceConfig.findOne();
-
-    if (!config) {
-      return res.status(404).json({
-        message: "Price config not set yet",
-      });
+    const { id } = req.params;
+    
+    const category = await Category.findByIdAndDelete(id);
+    if (!category) {
+      return res.status(404).json({ success: false, message: 'Category not found' });
     }
-
+    
+    deleteFile(category.image);
+    
     return res.status(200).json({
-      message: "Price config fetched successfully",
-      config,
+      success: true,
+      message: 'Category deleted successfully',
     });
-
   } catch (error) {
-    console.error("❌ GET PRICE CONFIG ERROR 👉", error);
-
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
-  }
-};
-
-
-
-// =======================
-// 💰 UPDATE PRICE CONFIG
-// =======================
-export const updatePriceConfig = async (req, res) => {
-  try {
-    console.log("👉 updatePriceConfig API HIT");
-
-    const { tailorBookingPrice, stylistBookingPrice } = req.body;
-
-    const config = await PriceConfig.findOne();
-
-    if (!config) {
-      return res.status(404).json({
-        message: "Price config not found. Create first.",
-      });
-    }
-
-    if (tailorBookingPrice !== undefined) {
-      config.tailorBookingPrice = tailorBookingPrice;
-    }
-
-    if (stylistBookingPrice !== undefined) {
-      config.stylistBookingPrice = stylistBookingPrice;
-    }
-
-    await config.save();
-
-    return res.status(200).json({
-      message: "Price config updated successfully",
-      config,
-    });
-
-  } catch (error) {
-    console.error("❌ UPDATE PRICE CONFIG ERROR 👉", error);
-
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
-  }
-};
-
-
-
-// =======================
-// ❌ DELETE PRICE CONFIG
-// =======================
-export const deletePriceConfig = async (req, res) => {
-  try {
-    console.log("👉 deletePriceConfig API HIT");
-
-    const config = await PriceConfig.findOne();
-
-    if (!config) {
-      return res.status(404).json({
-        message: "Price config not found",
-      });
-    }
-
-    await PriceConfig.deleteOne({ _id: config._id });
-
-    return res.status(200).json({
-      message: "Price config deleted successfully",
-    });
-
-  } catch (error) {
-    console.error("❌ DELETE PRICE CONFIG ERROR 👉", error);
-
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
-  }
-};
-
-
-// =======================
-// 🧑‍💼 ASSIGN STYLIST + 🔔 DETAILED NOTIFICATION
-// =======================
-export const assignStylist = async (req, res) => {
-  try {
-    console.log("👉 assignStylist API HIT");
-
-    const { bookingId } = req.params;
-    const { stylistId } = req.body;
-
-    if (!stylistId) {
-      return res.status(400).json({
-        message: "stylistId is required",
-      });
-    }
-
-    // 📌 get booking
-    const booking = await StylistBooking.findById(bookingId);
-
-    if (!booking) {
-      return res.status(404).json({
-        message: "Booking not found",
-      });
-    }
-
-    // 📌 get stylist details
-    const stylist = await User.findById(stylistId);
-
-    if (!stylist) {
-      return res.status(404).json({
-        message: "Stylist not found",
-      });
-    }
-
-    // =========================
-    // 🧑‍🎨 ASSIGN STYLIST
-    // =========================
-    booking.assignedStylist = stylistId;
-    booking.status = "booked";
-
-    await booking.save();
-
-    // =========================
-    // 🔔 PUSH NOTIFICATION TO USER
-    // =========================
-    const user = await User.findById(booking.userId);
-
-    if (user) {
-      if (!user.notifications) {
-        user.notifications = [];
-      }
-
-      user.notifications.push({
-        message: `Your booking has been assigned to stylist ${stylist.name}`,
-      });
-
-      await user.save();
-    }
-
-    return res.status(200).json({
-      message: "Stylist assigned successfully",
-      booking,
-    });
-
-  } catch (error) {
-    console.error("❌ ASSIGN STYLIST ERROR 👉", error);
-
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    console.error('deleteCategoryById error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };

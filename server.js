@@ -5,96 +5,62 @@ import bodyParser from 'body-parser';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import connectDatabase from './db/connectDatabase.js';
-import path from 'path'; // Import path to work with file and directory paths
-import UserRoutes from './Routes/userRoutes.js'
-import { fileURLToPath } from 'url';  // Import the fileURLToPath method
-import cloudinary from './config/cloudinary.js';
-import fileUpload from 'express-fileupload';
-import adminRoutes from "./Routes/adminRoutes.js"
-import dns from "dns";   // 👈 ADD THIS
-import fs from "fs";
+import path from 'path';
+import UserRoutes from './Routes/userRoutes.js';
+import { fileURLToPath } from 'url';
+import adminRoutes from './Routes/adminRoutes.js';
+import dns from 'dns';
+import fs from 'fs';
+import { createDefaultAdmin } from './utils/createAdmin.js';
 
 
-// 👇 ADD THIS RIGHT HERE
-dns.setServers([
-  "8.8.8.8",
-  "8.8.4.4"
-]);
+dns.setServers(['8.8.8.8', '8.8.4.4']);
 dotenv.config();
 
 const app = express();
-
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 
-// ✅ Serve static files from /uploads
+
+
+// ✅ Create upload directories
+const dirs = ['uploads/banners', 'uploads/categories', 'uploads/profiles', 'uploads/misc'];
+dirs.forEach(dir => fs.mkdirSync(dir, { recursive: true }));
+
+// ✅ Serve static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-if (!fs.existsSync("uploads/banners")) {
-  fs.mkdirSync("uploads/banners", { recursive: true });
-}
-
-
-if (!fs.existsSync("uploads/colleges")) {
-  fs.mkdirSync("uploads/colleges", { recursive: true });
-}
-
-
-if (!fs.existsSync("uploads/profile")) {
-  fs.mkdirSync("uploads/profile", { recursive: true });
-}
-
+// ✅ CORS
 app.use(cors({
   origin: ['http://localhost:3000', 'http://31.97.206.144:7686', 'https://vidya-enrolldeleteurl.vercel.app'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true
 }));
-
 app.options('*', cors());
 
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: false }));
+// ✅ Body parsers — NO fileUpload middleware (multer handles files)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
 
-// Database connection
+// ✅ Database
 connectDatabase();
 
-
-// Middleware to handle file uploads
-app.use(fileUpload({
-  useTempFiles: true,
-  tempFileDir: '/tmp/', // Temporary directory to store files before upload
-}));
-
-// Default route
-app.get("/", (req, res) => {
-    res.json({
-        status: "success",    // A key to indicate the response status
-        message: "Welcome to our service!", // Static message
-    });
+// ✅ Default route
+app.get('/', (req, res) => {
+  res.json({ status: 'success', message: 'Welcome to our service!' });
 });
 
-
-
-// Middleware to parse JSON bodies
-app.use(bodyParser.json());
-
-// Serve frontend static files (HTML, JS, CSS)
-
-
-// Create HTTP server with Express app
-const server = http.createServer(app);
-
+// ✅ Routes
 app.use('/api/users', UserRoutes);
 app.use('/api/admin', adminRoutes);
 
+// ✅ Server
+const port = process.env.PORT || 4077;
+const server = http.createServer(app);
 
-
-const port = process.env.PORT || 6063;
-
-app.listen(port, '0.0.0.0', () => {
+server.listen(port, '0.0.0.0', () => {
   console.log(`🚀 Server running on http://localhost:${port}`);
 });
-

@@ -5,7 +5,19 @@ import {
   register,
   verifyRegisterOtp,
   resendOtp,
+ getUserById,
+  updateProfile,
+  updateProfileImage,
+  deleteProfileImage,
+  updateLiveLocation,
+  getLiveLocation,
+  addAddress,
+  getAllAddresses,
+  getAddressById,
+  updateAddress,
+  deleteAddress,
 } from '../Controller/UserController.js';
+import { uploadProfileImage } from '../config/multerConfig.js';
 
 const router = express.Router();
 
@@ -34,5 +46,22 @@ router.post('/register/verify-otp', verifyRegisterOtp);
 
 // Common
 router.post('/resend-otp', resendOtp);
+
+// Profile routes (no authentication)
+router.get('/:userId', getUserById);
+router.put('/update/:userId', updateProfile);
+router.put('/update-image/:userId', uploadProfileImage, updateProfileImage);
+router.delete('/delete-image/:userId', deleteProfileImage);
+
+// Live location routes
+router.put('/live-location/:userId', updateLiveLocation);
+router.get('/live-location/:userId', getLiveLocation);
+
+// Address routes (no authentication)
+router.put('/add/:userId', addAddress);
+router.get('/all/:userId', getAllAddresses);
+router.get('/:userId/:addressId', getAddressById);
+router.put('/update/:userId/:addressId', updateAddress);
+router.delete('/delete/:userId/:addressId', deleteAddress);
 
 export default router;

@@ -1,6 +1,8 @@
 import User from '../Models/User.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
 const FIXED_OTP = '1234'; // Fixed OTP for all verification
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
@@ -12,6 +14,15 @@ const generateAuthToken = () => crypto.randomBytes(32).toString('hex');
 // Generate JWT
 const generateJWT = (userId, role) => {
   return jwt.sign({ id: userId, role }, JWT_SECRET, { expiresIn: '7d' });
+};
+
+// Add these helper functions at the very top of your UserController.js file
+const normalizePath = (filePath) => filePath.replace(/\\/g, '/');
+
+// Helper to build full image URL
+const getImageUrl = (req, filePath) => {
+  const normalized = normalizePath(filePath);
+  return `${req.protocol}://${req.get('host')}/${normalized}`;
 };
 
 /**
@@ -290,6 +301,484 @@ export const resendOtp = async (req, res) => {
     });
   } catch (error) {
     console.error('resendOtp error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+export const getUserById = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const user = await User.findById(userId).select('-otp -otpExpires -authToken -authTokenExpires -deleteToken -deleteTokenExpiration');
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    // Convert user to object and add full image URL
+    const userObj = user.toObject();
+    if (userObj.profileImage) {
+      const normalizedPath = userObj.profileImage.replace(/\\/g, '/');
+      userObj.profileImageUrl = `${req.protocol}://${req.get('host')}/${normalizedPath}`;
+    } else {
+      userObj.profileImageUrl = null;
+    }
+    
+    return res.status(200).json({
+      success: true,
+      user: userObj
+    });
+  } catch (error) {
+    console.error('getUserById error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
+ * Update user profile
+ * PUT /api/profile/update/:userId
+ * Body: { name, email, about }
+ */
+
+export const updateProfile = async (req, res) => {
+  console.log('🔵 updateProfile function was called!');
+  console.log('Request params:', req.params);
+  console.log('Request body:', req.body);
+  
+  try {
+    const { userId } = req.params;
+    const { name, email, about } = req.body;
+    
+    console.log('Extracted values:', { userId, name, email, about });
+    
+    // Build update object with only provided fields
+    const updateData = {};
+    if (name !== undefined && name !== '') updateData.name = name;
+    if (email !== undefined && email !== '') updateData.email = email;
+    if (about !== undefined) updateData.about = about;
+    
+    console.log('Update data being sent to DB:', updateData);
+    
+    // Check if there's anything to update
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No valid fields to update' 
+      });
+    }
+    
+    // Update user and return the updated document
+    const user = await User.findByIdAndUpdate(
+      userId,
+      updateData,
+      { new: true, runValidators: true } // new: true returns the updated document
+    ).select('-otp -otpExpires -authToken -authTokenExpires -deleteToken -deleteTokenExpiration');
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    console.log('User after update:', user);
+    
+    // Convert to object and add full image URL if profile image exists
+    const userObj = user.toObject();
+    if (userObj.profileImage) {
+      const normalizedPath = userObj.profileImage.replace(/\\/g, '/');
+      userObj.profileImageUrl = `${req.protocol}://${req.get('host')}/${normalizedPath}`;
+    } else {
+      userObj.profileImageUrl = null;
+    }
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: userObj
+    });
+  } catch (error) {
+    console.error('updateProfile error:', error);
+    
+    // Handle specific MongoDB errors
+    if (error.code === 11000) {
+      return res.status(409).json({ 
+        success: false, 
+        message: 'Email or mobile already exists' 
+      });
+    }
+    
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error',
+      error: error.message 
+    });
+  }
+};
+/**
+ * Update profile image
+ * POST /api/profile/update-image/:userId
+ * Form-data: profileImage (file)
+ */
+export const updateProfileImage = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No image file provided' });
+    }
+    
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      // Delete uploaded file if user not found
+      fs.unlinkSync(req.file.path);
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    // Delete old profile image if exists
+    if (user.profileImage) {
+      const oldImagePath = path.join(process.cwd(), user.profileImage);
+      if (fs.existsSync(oldImagePath)) {
+        fs.unlinkSync(oldImagePath);
+      }
+    }
+    
+    // Update with new image path
+    user.profileImage = req.file.path;
+    await user.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Profile image updated successfully',
+      profileImage: getImageUrl(req, req.file.path), // ✅ returns full URL
+    });
+  } catch (error) {
+    console.error('updateProfileImage error:', error);
+    // Delete uploaded file if error occurs
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
+ * Delete profile image
+ * DELETE /api/profile/delete-image/:userId
+ */
+
+export const deleteProfileImage = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    if (user.profileImage) {
+      const imagePath = path.join(process.cwd(), user.profileImage);
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath);
+      }
+      user.profileImage = null;
+      await user.save();
+    }
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Profile image deleted successfully'
+    });
+  } catch (error) {
+    console.error('deleteProfileImage error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
+ * Update live location
+ * PUT /api/profile/live-location/:userId
+ * Body: { latitude, longitude, address }
+ */
+export const updateLiveLocation = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { latitude, longitude } = req.body;
+    
+    if (!latitude || !longitude) {
+      return res.status(400).json({ success: false, message: 'Latitude and longitude are required' });
+    }
+    
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    user.liveLocation = {
+      latitude,
+      longitude,
+      updatedAt: new Date()
+    };
+    
+    await user.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Live location updated successfully',
+      liveLocation: user.liveLocation
+    });
+  } catch (error) {
+    console.error('updateLiveLocation error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
+ * Get live location
+ * GET /api/profile/live-location/:userId
+ */
+export const getLiveLocation = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await User.findById(userId).select('liveLocation');
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    return res.status(200).json({
+      success: true,
+      liveLocation: user.liveLocation || null
+    });
+  } catch (error) {
+    console.error('getLiveLocation error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+export const addAddress = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { addresses } = req.body;
+
+    if (!addresses || !Array.isArray(addresses) || addresses.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "addresses array is required"
+      });
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    for (const addr of addresses) {
+      const {
+        type,
+        fullName,
+        mobile,
+        pincode,
+        address,
+        city,
+        state,
+        landmark,
+        isDefault
+      } = addr;
+
+      if (!fullName || !mobile || !pincode || !address || !city || !state) {
+        return res.status(400).json({
+          success: false,
+          message: "All required fields must be filled"
+        });
+      }
+
+      // Remove old default
+      if (isDefault) {
+        user.addresses.forEach(a => {
+          a.isDefault = false;
+        });
+      }
+
+      user.addresses.push({
+        type: type || "home",
+        fullName,
+        mobile,
+        pincode,
+        address,
+        city,
+        state,
+        landmark: landmark || "",
+        isDefault: isDefault || false
+      });
+    }
+
+    await user.save();
+
+    return res.status(201).json({
+      success: true,
+      message: "Addresses added successfully",
+      addresses: user.addresses
+    });
+
+  } catch (error) {
+    console.error("addAddress error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
+/**
+ * Get all addresses
+ * GET /api/address/all/:userId
+ */
+export const getAllAddresses = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const user = await User.findById(userId).select('addresses');
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    return res.status(200).json({
+      success: true,
+      addresses: user.addresses
+    });
+  } catch (error) {
+    console.error('getAllAddresses error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
+ * Get address by ID
+ * GET /api/address/:userId/:addressId
+ */
+export const getAddressById = async (req, res) => {
+  try {
+    const { userId, addressId } = req.params;
+    
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    const address = user.addresses.id(addressId);
+    
+    if (!address) {
+      return res.status(404).json({ success: false, message: 'Address not found' });
+    }
+    
+    return res.status(200).json({
+      success: true,
+      address
+    });
+  } catch (error) {
+    console.error('getAddressById error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
+ * Update address
+ * PUT /api/address/update/:userId/:addressId
+ * Body: { type, fullName, mobile, pincode, address, city, state, landmark, isDefault }
+ */
+export const updateAddress = async (req, res) => {
+  try {
+    const { userId, addressId } = req.params;
+    const updateData = req.body;
+    
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    const address = user.addresses.id(addressId);
+    
+    if (!address) {
+      return res.status(404).json({ success: false, message: 'Address not found' });
+    }
+    
+    // Update fields
+    if (updateData.type) address.type = updateData.type;
+    if (updateData.fullName) address.fullName = updateData.fullName;
+    if (updateData.mobile) address.mobile = updateData.mobile;
+    if (updateData.pincode) address.pincode = updateData.pincode;
+    if (updateData.address) address.address = updateData.address;
+    if (updateData.city) address.city = updateData.city;
+    if (updateData.state) address.state = updateData.state;
+    if (updateData.landmark) address.landmark = updateData.landmark;
+    
+    // Handle default address update
+    if (updateData.isDefault && !address.isDefault) {
+      user.addresses.forEach(addr => {
+        addr.isDefault = false;
+      });
+      address.isDefault = true;
+    } else if (updateData.isDefault === false) {
+      address.isDefault = false;
+    }
+    
+    await user.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Address updated successfully',
+      address
+    });
+  } catch (error) {
+    console.error('updateAddress error:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
+ * Delete address
+ * DELETE /api/address/delete/:userId/:addressId
+ */
+export const deleteAddress = async (req, res) => {
+  try {
+    const { userId, addressId } = req.params;
+    
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    const address = user.addresses.id(addressId);
+    
+    if (!address) {
+      return res.status(404).json({ success: false, message: 'Address not found' });
+    }
+    
+    // Check if deleting default address
+    const wasDefault = address.isDefault;
+    
+    address.deleteOne();
+    
+    // If deleted address was default, set another address as default if exists
+    if (wasDefault && user.addresses.length > 0) {
+      user.addresses[0].isDefault = true;
+    }
+    
+    await user.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Address deleted successfully'
+    });
+  } catch (error) {
+    console.error('deleteAddress error:', error);
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };

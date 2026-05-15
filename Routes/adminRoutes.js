@@ -23,7 +23,7 @@ const router = express.Router();
 // Admin Auth (no token required)
 router.post('/login', adminLogin);
 
-// User Management (no token required - since admin is already logged in via session)
+// User Management
 router.get('/users', getAllUsers);
 router.get('/users/:id', getUserById);
 router.put('/users/:id', updateUserById);
@@ -33,7 +33,7 @@ router.delete('/users/:id', deleteUserById);
 router.post('/banners', uploadBannerImages, createBanners);
 router.get('/banners', getAllBanners);
 router.get('/banners/:id', getBannerById);
-router.put('/banners/:id', uploadCategoryImage, updateBannerById);
+router.put('/banners/:id', uploadBannerImages, updateBannerById); // ✅ FIXED - Changed to uploadBannerImages
 router.delete('/banners/:id', deleteBannerById);
 
 // Category Management

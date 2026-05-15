@@ -1,5 +1,66 @@
 import mongoose from 'mongoose';
 
+// Address Schema
+const addressSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ['home', 'work', 'other'],
+    default: 'home'
+  },
+  fullName: {
+    type: String,
+    required: true
+  },
+  mobile: {
+    type: String,
+    required: true
+  },
+  pincode: {
+    type: String,
+    required: true
+  },
+  address: {
+    type: String,
+    required: true
+  },
+  city: {
+    type: String,
+    required: true
+  },
+  state: {
+    type: String,
+    required: true
+  },
+  landmark: {
+    type: String
+  },
+  isDefault: {
+    type: Boolean,
+    default: false
+  }
+}, {
+  timestamps: true
+});
+
+// Live Location Schema
+const liveLocationSchema = new mongoose.Schema({
+  latitude: {
+    type: Number,
+    required: true
+  },
+  longitude: {
+    type: Number,
+    required: true
+  },
+  address: {
+    type: String
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -7,24 +68,22 @@ const userSchema = new mongoose.Schema({
   email: {
     type: String,
     lowercase: true,
-    // No index here
   },
   mobile: {
     type: String,
     unique: true,
     sparse: true,
   },
+  about: {
+    type: String,
+    maxlength: 5000,
+    default: ''
+  },
   otp: {
     type: String,
   },
   otpExpires: {
     type: Date,
-  },
-  password: {
-    type: String,
-  },
-  confirmPassword: {
-    type: String,
   },
   role: {
     type: String,
@@ -40,6 +99,8 @@ const userSchema = new mongoose.Schema({
   startingPrice: {
     type: Number,
   },
+  addresses: [addressSchema],
+  liveLocation: liveLocationSchema,
   wishlist: [
     {
       type: mongoose.Schema.Types.ObjectId,
@@ -80,6 +141,8 @@ userSchema.index({ email: 1 });
 userSchema.index({ mobile: 1 }, { unique: true, sparse: true });
 userSchema.index({ role: 1 });
 userSchema.index({ createdAt: -1 });
+userSchema.index({ 'addresses.isDefault': 1 });
+userSchema.index({ 'liveLocation.updatedAt': -1 });
 
 const User = mongoose.model('User', userSchema);
 export default User;

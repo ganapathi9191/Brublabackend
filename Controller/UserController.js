@@ -641,11 +641,11 @@ export const getAllAddresses = async (req, res) => {
   try {
     const { userId } = req.params;
     const user = await User.findById(userId).select('addresses');
-    
+
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    
+
     return res.status(200).json({
       success: true,
       addresses: user.addresses
@@ -663,19 +663,19 @@ export const getAllAddresses = async (req, res) => {
 export const getAddressById = async (req, res) => {
   try {
     const { userId, addressId } = req.params;
-    
+
     const user = await User.findById(userId);
-    
+
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    
+
     const address = user.addresses.id(addressId);
-    
+
     if (!address) {
       return res.status(404).json({ success: false, message: 'Address not found' });
     }
-    
+
     return res.status(200).json({
       success: true,
       address
@@ -695,19 +695,19 @@ export const updateAddress = async (req, res) => {
   try {
     const { userId, addressId } = req.params;
     const updateData = req.body;
-    
+
     const user = await User.findById(userId);
-    
+
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    
+
     const address = user.addresses.id(addressId);
-    
+
     if (!address) {
       return res.status(404).json({ success: false, message: 'Address not found' });
     }
-    
+
     // Update fields
     if (updateData.type) address.type = updateData.type;
     if (updateData.fullName) address.fullName = updateData.fullName;
@@ -717,7 +717,7 @@ export const updateAddress = async (req, res) => {
     if (updateData.city) address.city = updateData.city;
     if (updateData.state) address.state = updateData.state;
     if (updateData.landmark) address.landmark = updateData.landmark;
-    
+
     // Handle default address update
     if (updateData.isDefault && !address.isDefault) {
       user.addresses.forEach(addr => {
@@ -727,9 +727,9 @@ export const updateAddress = async (req, res) => {
     } else if (updateData.isDefault === false) {
       address.isDefault = false;
     }
-    
+
     await user.save();
-    
+
     return res.status(200).json({
       success: true,
       message: 'Address updated successfully',
@@ -748,31 +748,31 @@ export const updateAddress = async (req, res) => {
 export const deleteAddress = async (req, res) => {
   try {
     const { userId, addressId } = req.params;
-    
+
     const user = await User.findById(userId);
-    
+
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    
+
     const address = user.addresses.id(addressId);
-    
+
     if (!address) {
       return res.status(404).json({ success: false, message: 'Address not found' });
     }
-    
+
     // Check if deleting default address
     const wasDefault = address.isDefault;
-    
+
     address.deleteOne();
-    
+
     // If deleted address was default, set another address as default if exists
     if (wasDefault && user.addresses.length > 0) {
       user.addresses[0].isDefault = true;
     }
-    
+
     await user.save();
-    
+
     return res.status(200).json({
       success: true,
       message: 'Address deleted successfully'

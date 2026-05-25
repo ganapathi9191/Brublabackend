@@ -1,10 +1,10 @@
+// Models/Category.js
 import mongoose from 'mongoose';
 
-const categorySchema = new mongoose.Schema({
+const subcategorySchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
-    unique: true,
   },
   image: {
     type: String,
@@ -14,6 +14,21 @@ const categorySchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+}, {
+  timestamps: true,
+});
+
+const categorySchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+  subcategories: [subcategorySchema],
 }, {
   timestamps: true,
 });

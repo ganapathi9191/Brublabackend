@@ -1,3 +1,4 @@
+// Routes/userRoutes.js
 import express from 'express';
 import {
   loginRequest,
@@ -5,7 +6,7 @@ import {
   register,
   verifyRegisterOtp,
   resendOtp,
- getUserById,
+  getUserById,
   updateProfile,
   updateProfileImage,
   deleteProfileImage,
@@ -17,8 +18,7 @@ import {
   updateAddress,
   deleteAddress,
 } from '../Controller/UserController.js';
-import { uploadProfileImage } from '../config/multerConfig.js';
-
+import { upload } from '../config/multerConfig.js';
 const router = express.Router();
 
 /**
@@ -50,7 +50,7 @@ router.post('/resend-otp', resendOtp);
 // Profile routes (no authentication)
 router.get('/:userId', getUserById);
 router.put('/update/:userId', updateProfile);
-router.put('/update-image/:userId', uploadProfileImage, updateProfileImage);
+router.put('/update-image/:userId', upload.single('profileImage'), updateProfileImage); // Use upload.single
 router.delete('/delete-image/:userId', deleteProfileImage);
 
 // Live location routes
@@ -58,7 +58,7 @@ router.put('/live-location/:userId', updateLiveLocation);
 router.get('/live-location/:userId', getLiveLocation);
 
 // Address routes (no authentication)
-router.put('/add/:userId', addAddress);
+router.post('/add/:userId', addAddress);
 router.get('/all/:userId', getAllAddresses);
 router.get('/:userId/:addressId', getAddressById);
 router.put('/update/:userId/:addressId', updateAddress);

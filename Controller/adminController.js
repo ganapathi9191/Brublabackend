@@ -2,6 +2,7 @@ import Admin from '../Models/Admin.js';
 import User from '../Models/User.js';
 import Banner from '../Models/Banner.js';
 import Category from '../Models/Category.js';
+import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import fs from 'fs';
 import path from 'path';
@@ -55,48 +56,89 @@ export const adminLogin = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email and password are required' });
     }
 
-    // Check for permanent admin credentials FIRST
+    let adminData = null;
+    let isPermanent = false;
+
+    // Check for permanent admin credentials
     if (email === PERMANENT_ADMIN.email && password === PERMANENT_ADMIN.password) {
-      console.log('✅ Permanent admin login successful');
-      return res.status(200).json({
-        success: true,
-        message: 'Admin login successful',
-        admin: {
-          id: PERMANENT_ADMIN.id,
+      console.log('✅ Permanent admin login - checking database...');
+      
+      // ✅ Find or create admin in database
+      let admin = await Admin.findOne({ email: PERMANENT_ADMIN.email });
+      
+      if (!admin) {
+        // Create the permanent admin in database
+        const hashedPassword = await bcrypt.hash(PERMANENT_ADMIN.password, 10);
+        admin = await Admin.create({
           email: PERMANENT_ADMIN.email,
+          password: hashedPassword,
           role: 'super_admin',
-          isPermanent: true
-        },
-      });
-    }
+          name: 'Super Admin',
+          isActive: true
+        });
+        console.log('✅ Created permanent admin in database with ID:', admin._id);
+      }
+      
+      adminData = {
+        id: admin._id,  // ✅ Real MongoDB ObjectId
+        email: admin.email,
+        role: admin.role,
+        name: admin.name
+      };
+      isPermanent = true;
+    } else {
+      // Check database for other admins
+      const admin = await Admin.findOne({ email });
+      if (!admin) {
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
 
-    // If not permanent admin, check database for other admins
-    const admin = await Admin.findOne({ email });
-    if (!admin) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
-    }
+      const isPasswordValid = await bcrypt.compare(password, admin.password);
+      if (!isPasswordValid) {
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
 
-    const isPasswordValid = await bcrypt.compare(password, admin.password);
-    if (!isPasswordValid) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: 'Admin login successful',
-      admin: {
+      adminData = {
         id: admin._id,
         email: admin.email,
         role: admin.role || 'admin',
-        isPermanent: false
+        name: admin.name || 'Admin'
+      };
+    }
+
+    const secret = process.env.JWT_SECRET || 'your_secret_key_here';
+    console.log('Login using secret:', secret);
+
+    const token = jwt.sign(
+      { 
+        id: adminData.id.toString(),
+        email: adminData.email,
+        role: adminData.role || 'admin',
+        name: adminData.name || 'Admin'
       },
+      secret,  // Use the same secret variable
+      { expiresIn: '7d' }
+    );
+    console.log('Generated token:', token);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Admin login successful',
+      token,
+      admin: {
+        id: adminData.id,  // ✅ Returns real ObjectId
+        email: adminData.email,
+        role: adminData.role,
+        name: adminData.name,
+        isPermanent: isPermanent
+      }
     });
+
   } catch (error) {
     console.error('adminLogin error:', error);
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
-
 export const updatePermanentAdmin = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -818,153 +860,344 @@ const deleteProductFiles = (filePaths) => {
 };
 
 
+// // ==================== PRODUCT MANAGEMENT ====================
+// export const createProduct = async (req, res) => {
+//   try {
+//     const {
+//       name,
+//       description,
+//       categoryId,
+//       subcategoryId,
+//       variants,
+//       deliveryAddresses,
+//       tags
+//     } = req.body;
 
-// Create Product (Admin Only)
+//     const userId = req.user.id;
+//     const userRole = req.user.role;
+
+//     // Validate role
+//     if (!['admin', 'designer', 'tailor'].includes(userRole)) {
+//       return res.status(403).json({
+//         success: false,
+//         message: 'Only Admin, Designer, or Tailor can create products'
+//       });
+//     }
+
+//     // Validate required fields
+//     if (!name || !description || !categoryId || !subcategoryId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Missing required fields: name, description, categoryId, subcategoryId'
+//       });
+//     }
+
+//     // Validate variants
+//     let variantsArray = [];
+//     try {
+//       variantsArray = typeof variants === 'string' ? JSON.parse(variants) : variants;
+//     } catch (e) {
+//       variantsArray = [];
+//     }
+
+//     if (!variantsArray.length) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'At least one product variant is required'
+//       });
+//     }
+
+//     // Validate category
+//     const category = await Category.findById(categoryId);
+//     if (!category) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Category not found'
+//       });
+//     }
+
+//     const subcategory = category.subcategories.id(subcategoryId);
+//     if (!subcategory) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Subcategory not found in this category'
+//       });
+//     }
+
+//     // Get uploaded files
+//     const imageFiles = req.files?.images || [];
+//     const videoFiles = req.files?.videos || [];
+
+//     if (!imageFiles.length) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'At least one product image is required'
+//       });
+//     }
+
+//     // Process variants with images
+//     const processedVariants = variantsArray.map((variant, index) => {
+//       const variantImages = imageFiles
+//         .filter((_, i) => i % variantsArray.length === index)
+//         .map(file => getFileUrl(req, path.basename(file.path), 'products'));
+
+//       return {
+//         color: variant.color,
+//         size: variant.size,
+//         actualPrice: parseFloat(variant.actualPrice),
+//         discountPrice: variant.discountPrice ? parseFloat(variant.discountPrice) : null,
+//         stock: parseInt(variant.stock) || 0,
+//         images: variantImages,
+//         isActive: true
+//       };
+//     });
+
+//     const videoUrls = videoFiles.map(file => 
+//       getFileUrl(req, path.basename(file.path), 'products')
+//     );
+
+//     let addressesArray = [];
+//     if (deliveryAddresses) {
+//       try {
+//         addressesArray = typeof deliveryAddresses === 'string' ? JSON.parse(deliveryAddresses) : deliveryAddresses;
+//       } catch (e) {}
+//     }
+
+//     let tagsArray = [];
+//     if (tags) {
+//       try {
+//         tagsArray = typeof tags === 'string' ? JSON.parse(tags) : tags;
+//       } catch (e) {}
+//     }
+
+//     let creatorDetails = null;
+//     if (userRole !== 'admin') {
+//       const user = await User.findById(userId);
+//       if (user) {
+//         creatorDetails = {
+//           name: user.name,
+//           profileImage: user.profileImage || '',
+//           role: userRole,
+//           brandName: userRole === 'designer' ? user.name : undefined,
+//           shopName: userRole === 'tailor' ? user.name : undefined
+//         };
+//       }
+//     }
+
+//     const product = new Product({
+//       name,
+//       description,
+//       categoryId,
+//       subcategoryId,
+//       subcategoryName: subcategory.name,
+//       variants: processedVariants,
+//       deliveryAddresses: addressesArray,
+//       sizeGuide: videoUrls,
+//       tags: tagsArray,
+//       createdBy: userRole,
+//       creatorId: userId,
+//       creatorDetails
+//     });
+
+//     await product.save();
+
+//     return res.status(201).json({
+//       success: true,
+//       message: userRole === 'admin' ? 'Product created successfully' : 'Product submitted for admin approval',
+//       product,
+//       requiresApproval: userRole !== 'admin'
+//     });
+
+//   } catch (error) {
+//     console.error('createProduct error:', error);
+    
+//     // Simple error response without cleanup
+//     return res.status(500).json({
+//       success: false,
+//       message: error.message || 'Internal server error'
+//     });
+//   }
+// };
+
 export const createProduct = async (req, res) => {
   try {
-    const {
-      name,
-      description,
-      price,
-      discountPrice,
-      categoryId,
-      subcategoryId,
-      sizes,
-      deliveryAddresses,
-      stock
-    } = req.body;
+    // Get user from middleware or handle permanent admin
+    let userId = req.user?.id;
+    let userRole = req.user?.role;
 
-    // Get uploaded files (using existing multer upload)
-    const imageFiles = req.files?.images || [];
-    const videoFiles = req.files?.videos || [];
+    // Handle permanent admin from header
+    const authHeader = req.headers.authorization;
+    if (!userId && authHeader === 'Bearer permanent_admin_token') {
+      userId = 'admin_permanent_001';
+      userRole = 'admin';
+      console.log('✅ Using permanent admin');
+    }
 
-    // Validate required fields
-    if (!name || !description || !price || !categoryId || !subcategoryId) {
-      // Clean up uploaded files if validation fails
-      if (imageFiles.length) {
-        imageFiles.forEach(file => deleteFile(file.path));
-      }
-      if (videoFiles.length) {
-        videoFiles.forEach(file => deleteFile(file.path));
-      }
-      
-      return res.status(400).json({
+    if (!userId || !userRole) {
+      return res.status(401).json({
         success: false,
-        message: 'Missing required fields: name, description, price, categoryId, subcategoryId'
+        message: 'Authentication required. Please login.'
       });
     }
 
-    // Validate category exists
+    const {
+      name,
+      description,
+      categoryId,
+      subcategoryId,
+      variants,
+      deliveryAddresses,
+      tags
+    } = req.body;
+
+    // Validate role
+    if (!['admin', 'designer', 'tailor'].includes(userRole)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only Admin, Designer, or Tailor can create products'
+      });
+    }
+
+    // Validate required fields
+    if (!name || !description || !categoryId || !subcategoryId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: name, description, categoryId, subcategoryId'
+      });
+    }
+
+    // Validate variants
+    let variantsArray = [];
+    try {
+      variantsArray = typeof variants === 'string' ? JSON.parse(variants) : variants;
+    } catch (e) {
+      variantsArray = [];
+    }
+
+    if (!variantsArray.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one product variant is required'
+      });
+    }
+
+    // Validate category
     const category = await Category.findById(categoryId);
     if (!category) {
-      if (imageFiles.length) imageFiles.forEach(file => deleteFile(file.path));
-      if (videoFiles.length) videoFiles.forEach(file => deleteFile(file.path));
-      
       return res.status(404).json({
         success: false,
         message: 'Category not found'
       });
     }
 
-    // Validate subcategory exists in category
     const subcategory = category.subcategories.id(subcategoryId);
     if (!subcategory) {
-      if (imageFiles.length) imageFiles.forEach(file => deleteFile(file.path));
-      if (videoFiles.length) videoFiles.forEach(file => deleteFile(file.path));
-      
       return res.status(404).json({
         success: false,
         message: 'Subcategory not found in this category'
       });
     }
 
-    // Validate at least one image is provided
-    if (!imageFiles || imageFiles.length === 0) {
+    // ✅ Get uploaded files - DECLARE ONLY ONCE
+    const imageFiles = req.files?.images || [];
+    const videoFiles = req.files?.videos || [];
+
+    // DEBUG - Remove after testing
+    console.log('=== FILE UPLOAD DEBUG ===');
+    console.log('req.files:', req.files);
+    console.log('imageFiles length:', imageFiles.length);
+    console.log('videoFiles length:', videoFiles.length);
+    console.log('All form fields:', Object.keys(req.body));
+
+    if (!imageFiles.length) {
       return res.status(400).json({
         success: false,
         message: 'At least one product image is required'
       });
     }
 
-    // Process images - convert to URLs
-    const imageUrls = imageFiles.map(file => {
-      const filename = path.basename(file.path);
-      return getFileUrl(req, filename, 'products');
+    // Process variants with images
+    const processedVariants = variantsArray.map((variant, index) => {
+      const variantImages = imageFiles
+        .filter((_, i) => i % variantsArray.length === index)
+        .map(file => getFileUrl(req, path.basename(file.path), 'products'));
+
+      return {
+        color: variant.color,
+        size: variant.size,
+        actualPrice: parseFloat(variant.actualPrice),
+        discountPrice: variant.discountPrice ? parseFloat(variant.discountPrice) : null,
+        stock: parseInt(variant.stock) || 0,
+        images: variantImages,
+        isActive: true
+      };
     });
 
-    // Process videos - convert to URLs
-    const videoUrls = videoFiles.map(file => {
-      const filename = path.basename(file.path);
-      return getFileUrl(req, filename, 'products');
-    });
+    const videoUrls = videoFiles.map(file => 
+      getFileUrl(req, path.basename(file.path), 'products')
+    );
 
-    // Parse sizes (can be JSON string or array)
-    let sizesArray = [];
-    if (sizes) {
-      try {
-        sizesArray = Array.isArray(sizes) ? sizes : JSON.parse(sizes);
-      } catch (e) {
-        sizesArray = [];
-      }
-    }
-
-    // Parse delivery addresses (can be JSON string or array)
     let addressesArray = [];
     if (deliveryAddresses) {
       try {
-        addressesArray = Array.isArray(deliveryAddresses) ? deliveryAddresses : JSON.parse(deliveryAddresses);
-      } catch (e) {
-        addressesArray = [];
+        addressesArray = typeof deliveryAddresses === 'string' ? JSON.parse(deliveryAddresses) : deliveryAddresses;
+      } catch (e) {}
+    }
+
+    let tagsArray = [];
+    if (tags) {
+      try {
+        tagsArray = typeof tags === 'string' ? JSON.parse(tags) : tags;
+      } catch (e) {}
+    }
+
+    let creatorDetails = null;
+    if (userRole !== 'admin') {
+      const user = await User.findById(userId);
+      if (user) {
+        creatorDetails = {
+          name: user.name,
+          profileImage: user.profileImage || '',
+          role: userRole,
+          brandName: userRole === 'designer' ? user.name : undefined,
+          shopName: userRole === 'tailor' ? user.name : undefined
+        };
       }
     }
 
-    // Create product (admin created)
     const product = new Product({
       name,
       description,
-      price: parseFloat(price),
-      discountPrice: discountPrice ? parseFloat(discountPrice) : null,
       categoryId,
       subcategoryId,
       subcategoryName: subcategory.name,
-      images: imageUrls,
-      sizes: sizesArray.length ? sizesArray : ['S', 'M', 'L'],
-      sizeGuide: videoUrls,
+      variants: processedVariants,
       deliveryAddresses: addressesArray,
-      stock: stock ? parseInt(stock) : 0,
-      createdBy: 'admin',
-      isActive: true
+      sizeGuide: videoUrls,
+      tags: tagsArray,
+      createdBy: userRole,
+      creatorId: userId,
+      creatorDetails
     });
 
     await product.save();
 
     return res.status(201).json({
       success: true,
-      message: 'Product created successfully',
-      product
+      message: userRole === 'admin' ? 'Product created successfully' : 'Product submitted for admin approval',
+      product,
+      requiresApproval: userRole !== 'admin'
     });
 
   } catch (error) {
     console.error('createProduct error:', error);
     
-    // Clean up any uploaded files on error
-    if (req.files) {
-      if (req.files.images) {
-        req.files.images.forEach(file => deleteFile(file.path));
-      }
-      if (req.files.videos) {
-        req.files.videos.forEach(file => deleteFile(file.path));
-      }
-    }
-    
     return res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: error.message
+      message: error.message || 'Internal server error'
     });
   }
 };
-
 // Get All Products
 export const getAllProducts = async (req, res) => {
   try {
@@ -988,9 +1221,9 @@ export const getAllProducts = async (req, res) => {
     
     // Price filter
     if (minPrice || maxPrice) {
-      query.price = {};
-      if (minPrice) query.price.$gte = parseFloat(minPrice);
-      if (maxPrice) query.price.$lte = parseFloat(maxPrice);
+      query.displayPrice = {};
+      if (minPrice) query.displayPrice.$gte = parseFloat(minPrice);
+      if (maxPrice) query.displayPrice.$lte = parseFloat(maxPrice);
     }
 
     // Pagination
@@ -998,11 +1231,17 @@ export const getAllProducts = async (req, res) => {
     
     // Sorting
     let sort = {};
-    if (sortBy === 'price_asc') sort.price = 1;
-    else if (sortBy === 'price_desc') sort.price = -1;
+    if (sortBy === 'price_asc') sort.displayPrice = 1;
+    else if (sortBy === 'price_desc') sort.displayPrice = -1;
     else if (sortBy === 'rating_desc') sort.averageRating = -1;
     else if (sortBy === 'newest') sort.createdAt = -1;
     else sort.createdAt = -1;
+
+    // Approval filter for public users
+    if (!req.user || req.user.role !== 'admin') {
+      query.approvalStatus = { $in: ['approved', 'not_required'] };
+      query.isActive = true;
+    }
 
     const products = await Product.find(query)
       .populate('categoryId', 'name')
@@ -1036,8 +1275,6 @@ export const getProductById = async (req, res) => {
     const { id } = req.params;
 
     const product = await Product.findById(id)
-      .populate('categoryId', 'name')
-      .populate('reviews.user', 'name email');
 
     if (!product) {
       return res.status(404).json({
@@ -1045,12 +1282,20 @@ export const getProductById = async (req, res) => {
         message: 'Product not found'
       });
     }
-
+     
+     if (!req.user || req.user.role !== 'admin') {
+     if (!product.isActive || 
+        (!product.createdBy === 'admin' && product.approvalStatus !== 'approved')) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not available'
+      });
+    }
     return res.status(200).json({
       success: true,
       product
     });
-
+  }
   } catch (error) {
     console.error('getProductById error:', error);
     return res.status(500).json({
@@ -1060,27 +1305,32 @@ export const getProductById = async (req, res) => {
   }
 };
 
-// Get Products By Designer ID
-export const getProductsByDesignerId = async (req, res) => {
+export const getProductsByCreatorId = async (req, res) => {
   try {
-    const { designerId } = req.params;
-    const { page = 1, limit = 20 } = req.query;
+    const { creatorId } = req.params;
+    const { page = 1, limit = 20, role } = req.query;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const products = await Product.find({
-      'designerInfo.designerId': designerId,
-      createdBy: 'designer'
-    })
-      .populate('categoryId', 'name')
+    let query = { creatorId: creatorId };
+    
+    // Optional role filter
+    if (role && ['admin', 'designer', 'tailor'].includes(role)) {
+      query.createdBy = role;
+    }
+
+    // For public users, only show approved products
+    if (!req.user || req.user.role !== 'admin') {
+      query.isActive = true;
+      query.approvalStatus = { $in: ['approved', 'not_required'] };
+    }
+
+    const products = await Product.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
-    const total = await Product.countDocuments({
-      'designerInfo.designerId': designerId,
-      createdBy: 'designer'
-    });
+    const total = await Product.countDocuments(query);
 
     return res.status(200).json({
       success: true,
@@ -1092,7 +1342,7 @@ export const getProductsByDesignerId = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('getProductsByDesignerId error:', error);
+    console.error('getProductsByCreatorId error:', error);
     return res.status(500).json({
       success: false,
       message: 'Internal server error'
@@ -1107,46 +1357,44 @@ export const updateProductById = async (req, res) => {
     const {
       name,
       description,
-      price,
-      discountPrice,
       categoryId,
       subcategoryId,
-      sizes,
+      variants,
       deliveryAddresses,
-      stock,
+      tags,
       isActive
     } = req.body;
 
+    const userId = req.user.id;
+    const userRole = req.user.role;
     const imageFiles = req.files?.images || [];
     const videoFiles = req.files?.videos || [];
 
     const product = await Product.findById(id);
     if (!product) {
-      // Clean up uploaded files
-      if (imageFiles.length) imageFiles.forEach(file => deleteFile(file.path));
-      if (videoFiles.length) videoFiles.forEach(file => deleteFile(file.path));
-      
       return res.status(404).json({
         success: false,
         message: 'Product not found'
       });
     }
 
+    // Check permissions
+    if (product.creatorId.toString() !== userId && userRole !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized to update this product'
+      });
+    }
+
     // Update basic fields
     if (name) product.name = name;
     if (description) product.description = description;
-    if (price) product.price = parseFloat(price);
-    if (discountPrice !== undefined) product.discountPrice = discountPrice ? parseFloat(discountPrice) : null;
-    if (stock !== undefined) product.stock = parseInt(stock);
     if (isActive !== undefined) product.isActive = isActive === 'true';
 
-    // Update category/subcategory if changed
+    // Update category if changed
     if (categoryId && categoryId !== product.categoryId.toString()) {
       const category = await Category.findById(categoryId);
       if (!category) {
-        if (imageFiles.length) imageFiles.forEach(file => deleteFile(file.path));
-        if (videoFiles.length) videoFiles.forEach(file => deleteFile(file.path));
-        
         return res.status(404).json({
           success: false,
           message: 'Category not found'
@@ -1156,98 +1404,94 @@ export const updateProductById = async (req, res) => {
       if (subcategoryId) {
         const subcategory = category.subcategories.id(subcategoryId);
         if (!subcategory) {
-          if (imageFiles.length) imageFiles.forEach(file => deleteFile(file.path));
-          if (videoFiles.length) videoFiles.forEach(file => deleteFile(file.path));
-          
           return res.status(404).json({
             success: false,
             message: 'Subcategory not found'
           });
         }
         product.subcategoryName = subcategory.name;
+        product.subcategoryId = subcategoryId;
       }
       
       product.categoryId = categoryId;
-      if (subcategoryId) product.subcategoryId = subcategoryId;
     }
 
-    // Update sizes
-    if (sizes) {
+    // Update variants if provided
+    if (variants) {
       try {
-        product.sizes = Array.isArray(sizes) ? sizes : JSON.parse(sizes);
+        let variantsArray = typeof variants === 'string' ? JSON.parse(variants) : variants;
+        
+        // Process new images if any
+        if (imageFiles.length) {
+          variantsArray = variantsArray.map((variant, index) => {
+            const variantImages = imageFiles
+              .filter((_, i) => i % variantsArray.length === index)
+              .map(file => getFileUrl(req, path.basename(file.path), 'products'));
+            
+            return {
+              ...variant,
+              actualPrice: parseFloat(variant.actualPrice),
+              discountPrice: variant.discountPrice ? parseFloat(variant.discountPrice) : null,
+              stock: parseInt(variant.stock) || 0,
+              images: variantImages.length ? variantImages : variant.images || [],
+            };
+          });
+        }
+        
+        product.variants = variantsArray;
       } catch (e) {
-        product.sizes = [];
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid variants format'
+        });
       }
+    }
+
+    // Update videos
+    if (videoFiles.length > 0) {
+      const newVideoUrls = videoFiles.map(file => 
+        getFileUrl(req, path.basename(file.path), 'products')
+      );
+      product.sizeGuide = newVideoUrls;
     }
 
     // Update delivery addresses
     if (deliveryAddresses) {
       try {
-        product.deliveryAddresses = Array.isArray(deliveryAddresses) ? deliveryAddresses : JSON.parse(deliveryAddresses);
-      } catch (e) {
-        product.deliveryAddresses = [];
-      }
+        product.deliveryAddresses = typeof deliveryAddresses === 'string' 
+          ? JSON.parse(deliveryAddresses) 
+          : deliveryAddresses;
+      } catch (e) {}
     }
 
-    // Update images (add new ones, optionally delete old ones)
-    if (imageFiles.length > 0) {
-      // Delete old images if they are local files
-      product.images.forEach(image => {
-        if (!image.startsWith('http')) {
-          deleteFile(image);
-        }
-      });
-      
-      // Add new images
-      const newImageUrls = imageFiles.map(file => {
-        const filename = path.basename(file.path);
-        return getFileUrl(req, filename, 'products');
-      });
-      product.images = newImageUrls;
+    // Update tags
+    if (tags) {
+      try {
+        product.tags = typeof tags === 'string' ? JSON.parse(tags) : tags;
+      } catch (e) {}
     }
 
-    // Update videos
-    if (videoFiles.length > 0) {
-      // Delete old videos if they are local files
-      product.sizeGuide.forEach(video => {
-        if (!video.startsWith('http')) {
-          deleteFile(video);
-        }
-      });
-      
-      // Add new videos
-      const newVideoUrls = videoFiles.map(file => {
-        const filename = path.basename(file.path);
-        return getFileUrl(req, filename, 'products');
-      });
-      product.sizeGuide = newVideoUrls;
+    // Reset approval for non-admin updates
+    if (userRole !== 'admin' && product.approvalStatus === 'approved') {
+      product.approvalStatus = 'pending';
+      product.isActive = false;
     }
 
     await product.save();
 
     return res.status(200).json({
       success: true,
-      message: 'Product updated successfully',
+      message: userRole !== 'admin' && product.approvalStatus === 'pending'
+        ? 'Product updated and submitted for re-approval'
+        : 'Product updated successfully',
       product
     });
 
   } catch (error) {
     console.error('updateProductById error:', error);
-    
-    // Clean up uploaded files on error
-    if (req.files) {
-      if (req.files.images) {
-        req.files.images.forEach(file => deleteFile(file.path));
-      }
-      if (req.files.videos) {
-        req.files.videos.forEach(file => deleteFile(file.path));
-      }
-    }
-    
     return res.status(500).json({
       success: false,
-      message: 'Internal server error',
-      error: error.message
+      message: error.message || 'Internal server error'
     });
   }
 };
@@ -1256,6 +1500,8 @@ export const updateProductById = async (req, res) => {
 export const deleteProductById = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
 
     const product = await Product.findById(id);
     if (!product) {
@@ -1265,16 +1511,28 @@ export const deleteProductById = async (req, res) => {
       });
     }
 
-    // Delete all product images
-    if (product.images && product.images.length) {
-      product.images.forEach(image => {
-        if (!image.startsWith('http')) {
-          deleteFile(image);
+    // Check permissions
+    if (product.creatorId.toString() !== userId && userRole !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized to delete this product'
+      });
+    }
+
+    // Delete variant images
+    if (product.variants && product.variants.length) {
+      product.variants.forEach(variant => {
+        if (variant.images && variant.images.length) {
+          variant.images.forEach(image => {
+            if (!image.startsWith('http')) {
+              deleteFile(image);
+            }
+          });
         }
       });
     }
 
-    // Delete all product videos
+    // Delete size guide videos
     if (product.sizeGuide && product.sizeGuide.length) {
       product.sizeGuide.forEach(video => {
         if (!video.startsWith('http')) {
@@ -1283,7 +1541,13 @@ export const deleteProductById = async (req, res) => {
       });
     }
 
-    await Product.findByIdAndDelete(id);
+    // Soft delete for non-admin, hard delete for admin
+    if (userRole === 'admin') {
+      await Product.findByIdAndDelete(id);
+    } else {
+      product.isActive = false;
+      await product.save();
+    }
 
     return res.status(200).json({
       success: true,
@@ -1294,21 +1558,24 @@ export const deleteProductById = async (req, res) => {
     console.error('deleteProductById error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: error.message || 'Internal server error'
     });
   }
 };
+
 
 // Add Review To Product (No images array in review)
 export const addProductReview = async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId, rating, description } = req.body;
+    const { rating, description } = req.body;
+    const userId = req.user.id;  // ✅ From authenticated token
+    const userName = req.user.name;
 
-    if (!userId || !rating || !description) {
+    if (!rating || !description) {
       return res.status(400).json({
         success: false,
-        message: 'UserId, rating and description are required'
+        message: 'Rating and description are required'
       });
     }
 
@@ -1317,15 +1584,6 @@ export const addProductReview = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Product not found'
-      });
-    }
-
-    // Get user details
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
       });
     }
 
@@ -1337,22 +1595,21 @@ export const addProductReview = async (req, res) => {
     if (alreadyReviewed) {
       return res.status(400).json({
         success: false,
-        message: 'User already reviewed this product'
+        message: 'You have already reviewed this product'
       });
     }
 
     const review = {
       user: userId,
-      userName: user.name || 'User',
-      userImage: user.profileImage || '',
+      userName: userName,
+      userImage: req.user.profileImage || '',
       rating: parseInt(rating),
       description,
       createdAt: new Date()
     };
 
     product.reviews.push(review);
-    product.calculateAverageRating();
-    await product.save();
+    await product.save(); // Pre-save middleware updates averageRating
 
     return res.status(201).json({
       success: true,
@@ -1364,7 +1621,7 @@ export const addProductReview = async (req, res) => {
     console.error('addProductReview error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: error.message || 'Internal server error'
     });
   }
 };
@@ -1379,7 +1636,8 @@ export const getProductsBySubcategory = async (req, res) => {
 
     const products = await Product.find({
       subcategoryId,
-      isActive: true
+      isActive: true,
+      approvalStatus: { $in: ['approved', 'not_required'] }
     })
       .populate('categoryId', 'name')
       .sort({ createdAt: -1 })

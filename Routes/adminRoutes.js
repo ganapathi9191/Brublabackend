@@ -1,7 +1,9 @@
 
 // routes/adminRoutes.js
 import express from 'express';
-import { upload } from '../config/multerConfig.js';
+import { upload, uploadProductMedia} from '../config/multerConfig.js';
+import { authenticateToken } from '../Middleware/authMiddleware.js';
+
 import {
   // Auth
   adminLogin,
@@ -36,7 +38,7 @@ import {
     createProduct,
   getAllProducts,
   getProductById,
-  getProductsByDesignerId,
+  getProductsByCreatorId,
   updateProductById,
   deleteProductById,
   addProductReview,
@@ -75,5 +77,17 @@ router.get('/categories/:categoryId/subcategories', getSubcategoriesByCategory);
 router.get('/categories/:categoryId/subcategories/:subcategoryId', getSubcategoryById);
 router.put('/categories/:categoryId/subcategories/:subcategoryId', upload.single('image'), updateSubcategoryById);
 router.delete('/categories/:categoryId/subcategories/:subcategoryId', deleteSubcategoryById);
+
+// ==================== PRODUCT MANAGEMENT ====================
+router.post('/products',authenticateToken, uploadProductMedia, createProduct);
+router.get('/products', getAllProducts);
+router.get('/products/:id', getProductById);
+router.get('/products/creator/:creatorId', getProductsByCreatorId);
+router.put('/products/:id', authenticateToken, uploadProductMedia, updateProductById);
+router.delete('/products/:id', authenticateToken, deleteProductById);
+router.post('/products/:id/reviews', addProductReview);
+router.get('/subcategories/:subcategoryId/products', getProductsBySubcategory);
+
+
 
 export default router;

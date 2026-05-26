@@ -1,4 +1,4 @@
-// config/multerConfig.js (Add these new configurations)
+// config/multerConfig.js
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -13,6 +13,8 @@ const ensureDirectoryExists = (dir) => {
     fs.mkdirSync(dir, { recursive: true });
   }
 };
+
+// ==================== STORAGE CONFIGURATIONS ====================
 
 // Configure storage for profile images
 const profileStorage = multer.diskStorage({
@@ -31,6 +33,20 @@ const profileStorage = multer.diskStorage({
 // Configure storage for product images
 const productImageStorage = multer.diskStorage({
   destination: (req, file, cb) => {
+    const folder = 'uploads/products';
+    ensureDirectoryExists(folder);
+    cb(null, folder);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, 'product-' + uniqueSuffix + ext);
+  }
+});
+
+// Configure storage for product images (separate folder - legacy)
+const productImageOnlyStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
     const folder = 'uploads/products/images';
     ensureDirectoryExists(folder);
     cb(null, folder);
@@ -42,7 +58,7 @@ const productImageStorage = multer.diskStorage({
   }
 });
 
-// Configure storage for product videos (size guide)
+// Configure storage for product videos
 const productVideoStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const folder = 'uploads/products/videos';
@@ -55,6 +71,36 @@ const productVideoStorage = multer.diskStorage({
     cb(null, 'product-video-' + uniqueSuffix + ext);
   }
 });
+
+// Configure storage for banners
+const bannerStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const folder = 'uploads/banners';
+    ensureDirectoryExists(folder);
+    cb(null, folder);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, 'banner-' + uniqueSuffix + ext);
+  }
+});
+
+// Configure storage for subcategories
+const subcategoryStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const folder = 'uploads/subcategories';
+    ensureDirectoryExists(folder);
+    cb(null, folder);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, 'subcategory-' + uniqueSuffix + ext);
+  }
+});
+
+// ==================== FILE FILTERS ====================
 
 // File filter for images
 const imageFilter = (req, file, cb) => {
@@ -82,6 +128,71 @@ const videoFilter = (req, file, cb) => {
   }
 };
 
+// ==================== MULTER MIDDLEWARES ====================
+
+// ✅ CORRECT: Use fields() for product creation (images + videos together)
+export const uploadProductMedia = multer({
+  storage: productImageStorage,
+  limits: { 
+    fileSize: 50 * 1024 * 1024, // 50MB limit
+    files: 25 // Max 25 files total
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.fieldname === 'images') {
+      imageFilter(req, file, cb);
+    } else if (file.fieldname === 'videos') {
+      videoFilter(req, file, cb);
+    } else {
+      cb(new Error('Invalid field name. Use "images" or "videos"'));
+    }
+  }
+}).fields([
+  { name: 'images', maxCount: 20 },  // Max 20 images
+  { name: 'videos', maxCount: 5 }     // Max 5 videos
+]);
+
+// Upload for product images (multiple) - array format
+export const uploadProductImages = multer({
+  storage: productImageOnlyStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit per image
+  fileFilter: imageFilter
+}).array('images', 20); // Max 20 images
+
+// Upload for product videos (multiple) - array format
+export const uploadProductVideos = multer({
+  storage: productVideoStorage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit per video
+  fileFilter: videoFilter
+}).array('videos', 5); // Max 5 videos
+
+// Combined upload that handles both (sequential)
+export const uploadProductCombined = (req, res, next) => {
+  // First handle images
+  const imageUpload = multer({
+    storage: productImageOnlyStorage,
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: imageFilter
+  }).array('images', 20);
+  
+  // Then handle videos
+  const videoUpload = multer({
+    storage: productVideoStorage,
+    limits: { fileSize: 50 * 1024 * 1024 },
+    fileFilter: videoFilter
+  }).array('videos', 5);
+  
+  // Run image upload first
+  imageUpload(req, res, (err) => {
+    if (err) return next(err);
+    
+    // Then run video upload
+    videoUpload(req, res, (err) => {
+      if (err) return next(err);
+      next();
+    });
+  });
+};
+
 // Create upload middleware for profile images
 export const uploadProfileImage = multer({
   storage: profileStorage,
@@ -89,29 +200,42 @@ export const uploadProfileImage = multer({
   fileFilter: imageFilter
 }).single('profileImage');
 
-// Upload for product images (multiple)
-export const uploadProductImages = multer({
-  storage: productImageStorage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit per image
+// Upload for multiple banners
+export const uploadBanners = multer({
+  storage: bannerStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: imageFilter
-}).array('images', 20); // Max 20 images
+}).array('banners', 10);
 
-// Upload for product videos (multiple)
-export const uploadProductVideos = multer({
-  storage: productVideoStorage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit per video
-  fileFilter: videoFilter
-}).array('videos', 5); // Max 5 videos
+// Upload for single banner
+export const uploadBanner = multer({
+  storage: bannerStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: imageFilter
+}).single('banner');
 
-// Combined upload for both images and videos
-export const uploadProductMedia = (req, res, next) => {
-  // First handle image uploads
-  const imageUpload = uploadProductImages;
-  // Then handle video uploads separately in controller
-  next();
-};
+// Upload for subcategory image
+export const uploadSubcategoryImage = multer({
+  storage: subcategoryStorage,
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: imageFilter
+}).single('image');
 
-// Generic upload for other files
+// For single image upload (generic)
+export const uploadSingleImage = multer({
+  storage: productImageStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: imageFilter
+}).single('image');
+
+// For multiple images without videos
+export const uploadMultipleImages = multer({
+  storage: productImageStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: imageFilter
+}).array('images', 20);
+
+// Generic upload for other files (fallback)
 export const upload = multer({
   storage: profileStorage,
   limits: { fileSize: 5 * 1024 * 1024 },

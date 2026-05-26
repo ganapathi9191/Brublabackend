@@ -819,7 +819,7 @@ const deleteProductFiles = (filePaths) => {
 
 
 
-// ==================== CREATE PRODUCT (ADMIN ONLY) ====================
+// Create Product (Admin Only)
 export const createProduct = async (req, res) => {
   try {
     const {
@@ -834,15 +834,19 @@ export const createProduct = async (req, res) => {
       stock
     } = req.body;
 
-    // Handle files (images and videos)
+    // Get uploaded files (using existing multer upload)
     const imageFiles = req.files?.images || [];
     const videoFiles = req.files?.videos || [];
 
     // Validate required fields
     if (!name || !description || !price || !categoryId || !subcategoryId) {
       // Clean up uploaded files if validation fails
-      if (imageFiles.length) deleteMultipleFiles(imageFiles.map(f => f.path));
-      if (videoFiles.length) deleteMultipleFiles(videoFiles.map(f => f.path));
+      if (imageFiles.length) {
+        imageFiles.forEach(file => deleteFile(file.path));
+      }
+      if (videoFiles.length) {
+        videoFiles.forEach(file => deleteFile(file.path));
+      }
       
       return res.status(400).json({
         success: false,
@@ -853,8 +857,8 @@ export const createProduct = async (req, res) => {
     // Validate category exists
     const category = await Category.findById(categoryId);
     if (!category) {
-      if (imageFiles.length) deleteMultipleFiles(imageFiles.map(f => f.path));
-      if (videoFiles.length) deleteMultipleFiles(videoFiles.map(f => f.path));
+      if (imageFiles.length) imageFiles.forEach(file => deleteFile(file.path));
+      if (videoFiles.length) videoFiles.forEach(file => deleteFile(file.path));
       
       return res.status(404).json({
         success: false,
@@ -865,8 +869,8 @@ export const createProduct = async (req, res) => {
     // Validate subcategory exists in category
     const subcategory = category.subcategories.id(subcategoryId);
     if (!subcategory) {
-      if (imageFiles.length) deleteMultipleFiles(imageFiles.map(f => f.path));
-      if (videoFiles.length) deleteMultipleFiles(videoFiles.map(f => f.path));
+      if (imageFiles.length) imageFiles.forEach(file => deleteFile(file.path));
+      if (videoFiles.length) videoFiles.forEach(file => deleteFile(file.path));
       
       return res.status(404).json({
         success: false,
@@ -885,25 +889,33 @@ export const createProduct = async (req, res) => {
     // Process images - convert to URLs
     const imageUrls = imageFiles.map(file => {
       const filename = path.basename(file.path);
-      return getFileUrl(req, filename, 'images');
+      return getFileUrl(req, filename, 'products');
     });
 
     // Process videos - convert to URLs
     const videoUrls = videoFiles.map(file => {
       const filename = path.basename(file.path);
-      return getFileUrl(req, filename, 'videos');
+      return getFileUrl(req, filename, 'products');
     });
 
     // Parse sizes (can be JSON string or array)
     let sizesArray = [];
     if (sizes) {
-      sizesArray = Array.isArray(sizes) ? sizes : JSON.parse(sizes);
+      try {
+        sizesArray = Array.isArray(sizes) ? sizes : JSON.parse(sizes);
+      } catch (e) {
+        sizesArray = [];
+      }
     }
 
     // Parse delivery addresses (can be JSON string or array)
     let addressesArray = [];
     if (deliveryAddresses) {
-      addressesArray = Array.isArray(deliveryAddresses) ? deliveryAddresses : JSON.parse(deliveryAddresses);
+      try {
+        addressesArray = Array.isArray(deliveryAddresses) ? deliveryAddresses : JSON.parse(deliveryAddresses);
+      } catch (e) {
+        addressesArray = [];
+      }
     }
 
     // Create product (admin created)
@@ -938,10 +950,10 @@ export const createProduct = async (req, res) => {
     // Clean up any uploaded files on error
     if (req.files) {
       if (req.files.images) {
-        deleteMultipleFiles(req.files.images.map(f => f.path));
+        req.files.images.forEach(file => deleteFile(file.path));
       }
       if (req.files.videos) {
-        deleteMultipleFiles(req.files.videos.map(f => f.path));
+        req.files.videos.forEach(file => deleteFile(file.path));
       }
     }
     
@@ -953,7 +965,7 @@ export const createProduct = async (req, res) => {
   }
 };
 
-// ==================== GET ALL PRODUCTS ====================
+// Get All Products
 export const getAllProducts = async (req, res) => {
   try {
     const {
@@ -1018,7 +1030,7 @@ export const getAllProducts = async (req, res) => {
   }
 };
 
-// ==================== GET PRODUCT BY ID ====================
+// Get Product By ID
 export const getProductById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1048,7 +1060,7 @@ export const getProductById = async (req, res) => {
   }
 };
 
-// ==================== GET PRODUCTS BY DESIGNER ID ====================
+// Get Products By Designer ID
 export const getProductsByDesignerId = async (req, res) => {
   try {
     const { designerId } = req.params;
@@ -1088,7 +1100,7 @@ export const getProductsByDesignerId = async (req, res) => {
   }
 };
 
-// ==================== UPDATE PRODUCT ====================
+// Update Product By ID
 export const updateProductById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1111,8 +1123,8 @@ export const updateProductById = async (req, res) => {
     const product = await Product.findById(id);
     if (!product) {
       // Clean up uploaded files
-      if (imageFiles.length) deleteMultipleFiles(imageFiles.map(f => f.path));
-      if (videoFiles.length) deleteMultipleFiles(videoFiles.map(f => f.path));
+      if (imageFiles.length) imageFiles.forEach(file => deleteFile(file.path));
+      if (videoFiles.length) videoFiles.forEach(file => deleteFile(file.path));
       
       return res.status(404).json({
         success: false,
@@ -1132,8 +1144,8 @@ export const updateProductById = async (req, res) => {
     if (categoryId && categoryId !== product.categoryId.toString()) {
       const category = await Category.findById(categoryId);
       if (!category) {
-        if (imageFiles.length) deleteMultipleFiles(imageFiles.map(f => f.path));
-        if (videoFiles.length) deleteMultipleFiles(videoFiles.map(f => f.path));
+        if (imageFiles.length) imageFiles.forEach(file => deleteFile(file.path));
+        if (videoFiles.length) videoFiles.forEach(file => deleteFile(file.path));
         
         return res.status(404).json({
           success: false,
@@ -1144,8 +1156,8 @@ export const updateProductById = async (req, res) => {
       if (subcategoryId) {
         const subcategory = category.subcategories.id(subcategoryId);
         if (!subcategory) {
-          if (imageFiles.length) deleteMultipleFiles(imageFiles.map(f => f.path));
-          if (videoFiles.length) deleteMultipleFiles(videoFiles.map(f => f.path));
+          if (imageFiles.length) imageFiles.forEach(file => deleteFile(file.path));
+          if (videoFiles.length) videoFiles.forEach(file => deleteFile(file.path));
           
           return res.status(404).json({
             success: false,
@@ -1161,12 +1173,20 @@ export const updateProductById = async (req, res) => {
 
     // Update sizes
     if (sizes) {
-      product.sizes = Array.isArray(sizes) ? sizes : JSON.parse(sizes);
+      try {
+        product.sizes = Array.isArray(sizes) ? sizes : JSON.parse(sizes);
+      } catch (e) {
+        product.sizes = [];
+      }
     }
 
     // Update delivery addresses
     if (deliveryAddresses) {
-      product.deliveryAddresses = Array.isArray(deliveryAddresses) ? deliveryAddresses : JSON.parse(deliveryAddresses);
+      try {
+        product.deliveryAddresses = Array.isArray(deliveryAddresses) ? deliveryAddresses : JSON.parse(deliveryAddresses);
+      } catch (e) {
+        product.deliveryAddresses = [];
+      }
     }
 
     // Update images (add new ones, optionally delete old ones)
@@ -1181,7 +1201,7 @@ export const updateProductById = async (req, res) => {
       // Add new images
       const newImageUrls = imageFiles.map(file => {
         const filename = path.basename(file.path);
-        return getFileUrl(req, filename, 'images');
+        return getFileUrl(req, filename, 'products');
       });
       product.images = newImageUrls;
     }
@@ -1198,7 +1218,7 @@ export const updateProductById = async (req, res) => {
       // Add new videos
       const newVideoUrls = videoFiles.map(file => {
         const filename = path.basename(file.path);
-        return getFileUrl(req, filename, 'videos');
+        return getFileUrl(req, filename, 'products');
       });
       product.sizeGuide = newVideoUrls;
     }
@@ -1217,10 +1237,10 @@ export const updateProductById = async (req, res) => {
     // Clean up uploaded files on error
     if (req.files) {
       if (req.files.images) {
-        deleteMultipleFiles(req.files.images.map(f => f.path));
+        req.files.images.forEach(file => deleteFile(file.path));
       }
       if (req.files.videos) {
-        deleteMultipleFiles(req.files.videos.map(f => f.path));
+        req.files.videos.forEach(file => deleteFile(file.path));
       }
     }
     
@@ -1232,7 +1252,7 @@ export const updateProductById = async (req, res) => {
   }
 };
 
-// ==================== DELETE PRODUCT ====================
+// Delete Product By ID
 export const deleteProductById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1279,12 +1299,11 @@ export const deleteProductById = async (req, res) => {
   }
 };
 
-
-// ==================== ADD REVIEW TO PRODUCT ====================
+// Add Review To Product (No images array in review)
 export const addProductReview = async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId, rating, description, images } = req.body;
+    const { userId, rating, description } = req.body;
 
     if (!userId || !rating || !description) {
       return res.status(400).json({
@@ -1324,11 +1343,10 @@ export const addProductReview = async (req, res) => {
 
     const review = {
       user: userId,
-      userName: user.name,
+      userName: user.name || 'User',
       userImage: user.profileImage || '',
       rating: parseInt(rating),
       description,
-      images: images || [],
       createdAt: new Date()
     };
 
@@ -1351,7 +1369,7 @@ export const addProductReview = async (req, res) => {
   }
 };
 
-// ==================== GET PRODUCTS BY SUBCATEGORY ====================
+// Get Products By Subcategory
 export const getProductsBySubcategory = async (req, res) => {
   try {
     const { subcategoryId } = req.params;
@@ -1389,4 +1407,4 @@ export const getProductsBySubcategory = async (req, res) => {
       message: 'Internal server error'
     });
   }
-};
+};      

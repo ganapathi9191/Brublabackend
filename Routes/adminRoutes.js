@@ -33,6 +33,14 @@ import {
   getSubcategoryById,
   updateSubcategoryById,
   deleteSubcategoryById,
+    createProduct,
+  getAllProducts,
+  getProductById,
+  getProductsByDesignerId,
+  updateProductById,
+  deleteProductById,
+  addProductReview,
+  getProductsBySubcategory
 } from '../Controller/adminController.js';
 
 const router = express.Router();

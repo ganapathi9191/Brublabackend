@@ -1,7 +1,7 @@
 
 // routes/adminRoutes.js
 import express from 'express';
-import { upload, uploadProductMedia} from '../config/multerConfig.js';
+import { upload, uploadProductMedia, uploadMultipleImages} from '../config/multerConfig.js';
 import { authenticateToken } from '../Middleware/authMiddleware.js';
 
 import {
@@ -42,7 +42,12 @@ import {
   updateProductById,
   deleteProductById,
   addProductReview,
-  getProductsBySubcategory
+  getProductsBySubcategory,
+  addVariantImages,
+  getVariantImages,
+  setVariantMainImage,
+  removeVariantImage,
+  deleteAllVariantImages
 } from '../Controller/adminController.js';
 
 const router = express.Router();
@@ -88,6 +93,11 @@ router.delete('/products/:id', authenticateToken, deleteProductById);
 router.post('/products/:id/reviews', addProductReview);
 router.get('/subcategories/:subcategoryId/products', getProductsBySubcategory);
 
+router.post('/products/:productId/variants/:variantId/images', uploadMultipleImages, addVariantImages);
+router.get('/products/:productId/variants/:variantId/images', getVariantImages);
+router.put('/products/:productId/variants/:variantId/main-image', setVariantMainImage);
+router.delete('/products/:productId/variants/:variantId/images', removeVariantImage);
+router.delete('/products/:productId/variants/images', deleteAllVariantImages);
 
 
 export default router;

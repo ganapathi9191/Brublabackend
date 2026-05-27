@@ -7,6 +7,7 @@ import bcrypt from 'bcrypt';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getFileUrl, deleteFile } from '../utils/fileUtils.js';
 import Product from '../Models/Product.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,25 +20,6 @@ const getImageUrl = (req, filePath) => {
   const normalized = normalizePath(filePath);
   return `${req.protocol}://${req.get('host')}/${normalized}`;
 };
-
-const getFileUrl = (req, filename, subfolder) => {
-  const baseUrl = `${req.protocol}://${req.get('host')}`;
-  return `${baseUrl}/uploads/${subfolder}/${filename}`;
-};
-
-// Helper function to delete file
-const deleteFile = (filePath) => {
-  try {
-    const fullPath = path.join(__dirname, '..', filePath);
-    if (fs.existsSync(fullPath)) {
-      fs.unlinkSync(fullPath);
-    }
-  } catch (error) {
-    console.error('Error deleting file:', error);
-  }
-};
-
-
 
 
 // Permanent admin credentials
@@ -1666,3 +1648,251 @@ export const getProductsBySubcategory = async (req, res) => {
     });
   }
 };      
+
+
+// ==================== ADD IMAGES TO VARIANT ====================
+export const addVariantImages = async (req, res) => {
+   console.log('=== DEBUG ===');
+  console.log('req.files:', req.files);
+  console.log('req.files?.images:', req.files?.images);
+  console.log('Content-Type:', req.headers['content-type']);
+  try {
+    const { productId, variantId } = req.params;
+    const imageFiles = req.files || [];
+    
+    console.log(`📸 Received ${imageFiles.length} image(s)`);
+
+    if (!imageFiles.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one image is required'
+      });
+    }
+    
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    
+    const variant = product.variants.id(variantId);
+    if (!variant) {
+      return res.status(404).json({ success: false, message: 'Variant not found' });
+    }
+    
+    const imageUrls = imageFiles.map(file => 
+      getFileUrl(req, path.basename(file.path), 'products')
+    );
+    
+    variant.images.push(...imageUrls);
+    
+    if (!variant.mainImage && imageUrls.length) {
+      variant.mainImage = imageUrls[0];
+    }
+    
+    await product.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: `${imageUrls.length} image(s) added`,
+      variant: {
+        id: variant._id,
+        color: variant.color,
+        size: variant.size,
+        mainImage: variant.mainImage,
+        images: variant.images
+      }
+    });
+    
+  } catch (error) {
+    console.error('addVariantImages error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== GET VARIANT IMAGES ====================
+export const getVariantImages = async (req, res) => {
+  try {
+    const { productId, variantId } = req.params;
+    
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    
+    const variant = product.variants.id(variantId);
+    if (!variant) {
+      return res.status(404).json({ success: false, message: 'Variant not found' });
+    }
+    
+    return res.status(200).json({
+      success: true,
+      variant: {
+        id: variant._id,
+        color: variant.color,
+        size: variant.size,
+        mainImage: variant.mainImage,
+        images: variant.images,
+        totalImages: variant.images.length
+      }
+    });
+    
+  } catch (error) {
+    console.error('getVariantImages error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== SET MAIN IMAGE ====================
+export const setVariantMainImage = async (req, res) => {
+  try {
+    const { productId, variantId } = req.params;
+    const { imageUrl } = req.body;
+    
+    if (!imageUrl) {
+      return res.status(400).json({
+        success: false,
+        message: 'Image URL is required'
+      });
+    }
+    
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    
+    const variant = product.variants.id(variantId);
+    if (!variant) {
+      return res.status(404).json({ success: false, message: 'Variant not found' });
+    }
+    
+    if (!variant.images.includes(imageUrl)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Image not found in variant gallery'
+      });
+    }
+    
+    variant.mainImage = imageUrl;
+    await product.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Main image updated successfully',
+      variant: {
+        id: variant._id,
+        color: variant.color,
+        size: variant.size,
+        mainImage: variant.mainImage,
+        images: variant.images
+      }
+    });
+    
+  } catch (error) {
+    console.error('setVariantMainImage error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== REMOVE IMAGE FROM VARIANT ====================
+export const removeVariantImage = async (req, res) => {
+  try {
+    const { productId, variantId } = req.params;
+    const { imageUrl } = req.body;
+    
+    if (!imageUrl) {
+      return res.status(400).json({
+        success: false,
+        message: 'Image URL is required'
+      });
+    }
+    
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    
+    const variant = product.variants.id(variantId);
+    if (!variant) {
+      return res.status(404).json({ success: false, message: 'Variant not found' });
+    }
+    
+    if (!variant.images.includes(imageUrl)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Image not found in variant gallery'
+      });
+    }
+    
+    variant.images = variant.images.filter(img => img !== imageUrl);
+    
+    if (variant.mainImage === imageUrl) {
+      variant.mainImage = variant.images[0] || null;
+    }
+    
+    await product.save();
+    
+    if (!imageUrl.startsWith('http')) {
+      deleteFile(imageUrl);
+    }
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Image removed successfully',
+      variant: {
+        id: variant._id,
+        color: variant.color,
+        size: variant.size,
+        mainImage: variant.mainImage,
+        images: variant.images
+      }
+    });
+    
+  } catch (error) {
+    console.error('removeVariantImage error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== DELETE ALL VARIANT IMAGES ====================
+export const deleteAllVariantImages = async (req, res) => {
+  try {
+    const { productId, variantId } = req.params;
+    
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    
+    const variant = product.variants.id(variantId);
+    if (!variant) {
+      return res.status(404).json({ success: false, message: 'Variant not found' });
+    }
+    
+    variant.images.forEach(image => {
+      if (!image.startsWith('http')) {
+        deleteFile(image);
+      }
+    });
+    
+    variant.images = [];
+    variant.mainImage = '';
+    
+    await product.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: 'All images removed from variant',
+      variant: {
+        id: variant._id,
+        color: variant.color,
+        size: variant.size,
+        mainImage: variant.mainImage,
+        images: variant.images
+      }
+    });
+    
+  } catch (error) {
+    console.error('deleteAllVariantImages error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};

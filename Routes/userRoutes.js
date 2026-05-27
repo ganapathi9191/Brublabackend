@@ -17,7 +17,21 @@ import {
   getAddressById,
   updateAddress,
   deleteAddress,
+  addToWishlist,
+  removeFromWishlist,
+  getWishlist,
+  checkWishlist,
+  addToCart,
+  updateCartQuantity,
+  removeFromCart,
+  getCart,
+  clearCart,
+  createOrder,
+  getUserOrders,
+  getOrderById,
+  cancelOrder
 } from '../Controller/UserController.js';
+import { authenticateToken } from '../middleware/authMiddleware.js';
 import { upload } from '../config/multerConfig.js';
 const router = express.Router();
 
@@ -63,5 +77,25 @@ router.get('/all/:userId', getAllAddresses);
 router.get('/:userId/:addressId', getAddressById);
 router.put('/update/:userId/:addressId', updateAddress);
 router.delete('/delete/:userId/:addressId', deleteAddress);
+
+// ==================== WISHLIST ROUTES ====================
+router.post('/wishlist/:userId/add', authenticateToken, addToWishlist);
+router.delete('/wishlist/:userId/remove', authenticateToken, removeFromWishlist);
+router.get('/wishlist/:userId', authenticateToken, getWishlist);
+router.get('/wishlist/:userId/check', authenticateToken, checkWishlist);
+
+// ==================== CART ROUTES ====================
+router.post('/cart/:userId/add', authenticateToken, addToCart);
+router.put('/cart/:userId/update', authenticateToken, updateCartQuantity);
+router.delete('/cart/:userId/remove', authenticateToken, removeFromCart);
+router.get('/cart/:userId', authenticateToken, getCart);
+router.delete('/cart/:userId/clear', authenticateToken, clearCart);
+
+// ==================== ORDER ROUTES ====================
+router.post('/order/:userId/create', authenticateToken, createOrder);
+router.get('/order/:userId', authenticateToken, getUserOrders);
+router.get('/order/:userId/:orderId', authenticateToken, getOrderById);
+router.put('/order/:userId/:orderId/cancel', authenticateToken, cancelOrder);
+
 
 export default router;

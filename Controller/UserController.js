@@ -782,3 +782,666 @@ export const deleteAddress = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Internal server error' });
   }
 };
+
+
+
+// ==================== WISHLIST CONTROLLERS ====================
+
+// Add to wishlist
+export const addToWishlist = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { productId } = req.body;
+
+    if (!productId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product ID is required'
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Check if already in wishlist
+    if (user.wishlist.includes(productId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product already in wishlist'
+      });
+    }
+
+    user.wishlist.push(productId);
+    await user.save();
+
+    // Populate wishlist items
+    await user.populate('wishlist', 'name displayPrice variants');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Added to wishlist',
+      wishlist: user.wishlist
+    });
+
+  } catch (error) {
+    console.error('addToWishlist error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Remove from wishlist
+export const removeFromWishlist = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { productId } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.wishlist = user.wishlist.filter(id => id.toString() !== productId);
+    await user.save();
+
+    await user.populate('wishlist', 'name displayPrice variants');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Removed from wishlist',
+      wishlist: user.wishlist
+    });
+
+  } catch (error) {
+    console.error('removeFromWishlist error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get wishlist
+export const getWishlist = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId).populate('wishlist', 'name description displayPrice displayActualPrice maxDiscount variants averageRating');
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Transform wishlist items
+    const wishlistItems = user.wishlist.map(product => {
+      const productObj = product.toObject();
+      const mainImage = productObj.variants?.[0]?.mainImage || 
+                        productObj.variants?.[0]?.images?.[0] || 
+                        null;
+      
+      return {
+        _id: productObj._id,
+        name: productObj.name,
+        description: productObj.description,
+        displayPrice: productObj.displayPrice,
+        displayActualPrice: productObj.displayActualPrice,
+        maxDiscount: productObj.maxDiscount,
+        mainImage: mainImage,
+        averageRating: productObj.averageRating,
+        variantsCount: productObj.variants?.length || 0
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: wishlistItems.length,
+      wishlist: wishlistItems
+    });
+
+  } catch (error) {
+    console.error('getWishlist error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Check if product is in wishlist
+export const checkWishlist = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { productId } = req.query;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const isInWishlist = user.wishlist.includes(productId);
+
+    return res.status(200).json({
+      success: true,
+      isInWishlist
+    });
+
+  } catch (error) {
+    console.error('checkWishlist error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+
+// ==================== CART CONTROLLERS ====================
+
+// Add to cart
+export const addToCart = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { productId, variantId, quantity = 1 } = req.body;
+
+    if (!productId || !variantId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product ID and Variant ID are required'
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Get product and variant details
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+
+    const variant = product.variants.id(variantId);
+    if (!variant) {
+      return res.status(404).json({ success: false, message: 'Variant not found' });
+    }
+
+    // Check stock
+    if (variant.stock < quantity) {
+      return res.status(400).json({
+        success: false,
+        message: `Only ${variant.stock} items available in stock`
+      });
+    }
+
+    // Check if already in cart
+    const existingItem = user.cart.find(
+      item => item.productId.toString() === productId && item.variantId.toString() === variantId
+    );
+
+    if (existingItem) {
+      existingItem.quantity += quantity;
+      if (existingItem.quantity > variant.stock) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot add more than ${variant.stock} items`
+        });
+      }
+    } else {
+      user.cart.push({
+        productId,
+        variantId,
+        variant: {
+          color: variant.color,
+          size: variant.size,
+          actualPrice: variant.actualPrice,
+          discountPrice: variant.discountPrice,
+          mainImage: variant.mainImage || variant.images?.[0]
+        },
+        quantity,
+        price: variant.discountPrice || variant.actualPrice
+      });
+    }
+
+    await user.save();
+
+    // Populate cart items
+    await user.populate('cart.productId', 'name description');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Added to cart',
+      cart: user.cart
+    });
+
+  } catch (error) {
+    console.error('addToCart error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Update cart item quantity
+export const updateCartQuantity = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { cartItemId, quantity } = req.body;
+
+    if (!cartItemId || !quantity || quantity < 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cart item ID and valid quantity are required'
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const cartItem = user.cart.id(cartItemId);
+    if (!cartItem) {
+      return res.status(404).json({ success: false, message: 'Cart item not found' });
+    }
+
+    // Check stock
+    const product = await Product.findById(cartItem.productId);
+    const variant = product.variants.id(cartItem.variantId);
+    
+    if (variant.stock < quantity) {
+      return res.status(400).json({
+        success: false,
+        message: `Only ${variant.stock} items available`
+      });
+    }
+
+    cartItem.quantity = quantity;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Cart updated',
+      cart: user.cart
+    });
+
+  } catch (error) {
+    console.error('updateCartQuantity error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Remove from cart
+export const removeFromCart = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { cartItemId } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.cart = user.cart.filter(item => item._id.toString() !== cartItemId);
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Removed from cart',
+      cart: user.cart
+    });
+
+  } catch (error) {
+    console.error('removeFromCart error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get cart
+export const getCart = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId).populate('cart.productId', 'name description');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    let subtotal = 0;
+    let totalDiscount = 0;
+
+    const cartItems = user.cart.map(item => {
+      const itemTotal = item.price * item.quantity;
+      subtotal += itemTotal;
+      
+      if (item.variant.actualPrice && item.variant.discountPrice) {
+        totalDiscount += (item.variant.actualPrice - item.variant.discountPrice) * item.quantity;
+      }
+
+      return {
+        _id: item._id,
+        productId: item.productId,
+        variantId: item.variantId,
+        variant: item.variant,
+        quantity: item.quantity,
+        price: item.price,
+        totalPrice: itemTotal
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      cart: {
+        items: cartItems,
+        summary: {
+          subtotal,
+          totalDiscount,
+          finalAmount: subtotal
+        },
+        totalItems: user.cart.length
+      }
+    });
+
+  } catch (error) {
+    console.error('getCart error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Clear cart
+export const clearCart = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.cart = [];
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Cart cleared',
+      cart: []
+    });
+
+  } catch (error) {
+    console.error('clearCart error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+// ==================== ORDER CONTROLLERS ====================
+
+// Generate unique order ID
+const generateOrderId = () => {
+  return 'ORD' + Date.now() + crypto.randomBytes(4).toString('hex').toUpperCase();
+};
+
+// Create order from cart
+export const createOrder = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { addressId, paymentMethod } = req.body;
+
+    if (!addressId || !paymentMethod) {
+      return res.status(400).json({
+        success: false,
+        message: 'Address ID and payment method are required'
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (user.cart.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cart is empty'
+      });
+    }
+
+    // Get delivery address
+    const deliveryAddress = user.addresses.id(addressId);
+    if (!deliveryAddress) {
+      return res.status(404).json({
+        success: false,
+        message: 'Address not found'
+      });
+    }
+
+    let totalAmount = 0;
+    let discountAmount = 0;
+    const orderItems = [];
+
+    // Process each cart item
+    for (const cartItem of user.cart) {
+      const product = await Product.findById(cartItem.productId);
+      if (!product) {
+        throw new Error(`Product not found: ${cartItem.productId}`);
+      }
+
+      const variant = product.variants.id(cartItem.variantId);
+      if (!variant) {
+        throw new Error(`Variant not found: ${cartItem.variantId}`);
+      }
+
+      // Check stock
+      if (variant.stock < cartItem.quantity) {
+        return res.status(400).json({
+          success: false,
+          message: `${product.name} - ${variant.color} ${variant.size} has only ${variant.stock} items in stock`
+        });
+      }
+
+      // Reduce stock
+      variant.stock -= cartItem.quantity;
+
+      const itemPrice = cartItem.price;
+      const itemTotal = itemPrice * cartItem.quantity;
+      totalAmount += itemTotal;
+      
+      if (variant.actualPrice && variant.discountPrice) {
+        discountAmount += (variant.actualPrice - variant.discountPrice) * cartItem.quantity;
+      }
+
+      orderItems.push({
+        productId: cartItem.productId,
+        variantId: cartItem.variantId,
+        variant: cartItem.variant,
+        quantity: cartItem.quantity,
+        price: cartItem.price,
+        status: 'pending'
+      });
+    }
+
+    await product.save();
+
+    const finalAmount = totalAmount;
+
+    const order = {
+      orderId: generateOrderId(),
+      items: orderItems,
+      totalAmount,
+      discountAmount,
+      finalAmount,
+      deliveryAddress: deliveryAddress.toObject(),
+      paymentMethod,
+      paymentStatus: paymentMethod === 'cod' ? 'pending' : 'pending',
+      orderStatus: 'pending',
+      createdAt: new Date()
+    };
+
+    user.orders.push(order);
+    user.cart = []; // Clear cart
+    await user.save();
+
+    return res.status(201).json({
+      success: true,
+      message: 'Order created successfully',
+      order: {
+        orderId: order.orderId,
+        finalAmount: order.finalAmount,
+        paymentMethod: order.paymentMethod,
+        orderStatus: order.orderStatus,
+        items: order.items.length
+      }
+    });
+
+  } catch (error) {
+    console.error('createOrder error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get user orders
+export const getUserOrders = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { page = 1, limit = 10, status } = req.query;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    let orders = [...user.orders];
+    
+    // Filter by status if provided
+    if (status) {
+      orders = orders.filter(order => order.orderStatus === status);
+    }
+
+    // Sort by latest first
+    orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    // Pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const paginatedOrders = orders.slice(skip, skip + parseInt(limit));
+
+    // Populate product details for each order
+    const ordersWithDetails = await Promise.all(paginatedOrders.map(async (order) => {
+      const itemsWithDetails = await Promise.all(order.items.map(async (item) => {
+        const product = await Product.findById(item.productId).select('name description');
+        return {
+          ...item.toObject(),
+          productName: product?.name,
+          productDescription: product?.description
+        };
+      }));
+      
+      return {
+        ...order.toObject(),
+        items: itemsWithDetails
+      };
+    }));
+
+    return res.status(200).json({
+      success: true,
+      count: ordersWithDetails.length,
+      total: orders.length,
+      page: parseInt(page),
+      pages: Math.ceil(orders.length / parseInt(limit)),
+      orders: ordersWithDetails
+    });
+
+  } catch (error) {
+    console.error('getUserOrders error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get order by ID
+export const getOrderById = async (req, res) => {
+  try {
+    const { userId, orderId } = req.params;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const order = user.orders.find(o => o.orderId === orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Populate product details
+    const itemsWithDetails = await Promise.all(order.items.map(async (item) => {
+      const product = await Product.findById(item.productId).select('name description');
+      return {
+        ...item.toObject(),
+        productName: product?.name,
+        productDescription: product?.description
+      };
+    }));
+
+    const orderWithDetails = {
+      ...order.toObject(),
+      items: itemsWithDetails
+    };
+
+    return res.status(200).json({
+      success: true,
+      order: orderWithDetails
+    });
+
+  } catch (error) {
+    console.error('getOrderById error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Cancel order
+export const cancelOrder = async (req, res) => {
+  try {
+    const { userId, orderId } = req.params;
+    const { reason } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const order = user.orders.find(o => o.orderId === orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (order.orderStatus !== 'pending' && order.orderStatus !== 'confirmed') {
+      return res.status(400).json({
+        success: false,
+        message: `Order cannot be cancelled. Current status: ${order.orderStatus}`
+      });
+    }
+
+    // Restore stock
+    for (const item of order.items) {
+      const product = await Product.findById(item.productId);
+      if (product) {
+        const variant = product.variants.id(item.variantId);
+        if (variant) {
+          variant.stock += item.quantity;
+          await product.save();
+        }
+      }
+    }
+
+    order.orderStatus = 'cancelled';
+    order.cancelledAt = new Date();
+    order.cancellationReason = reason || 'Cancelled by user';
+    order.updatedAt = new Date();
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Order cancelled successfully',
+      order: {
+        orderId: order.orderId,
+        orderStatus: order.orderStatus,
+        cancelledAt: order.cancelledAt
+      }
+    });
+
+  } catch (error) {
+    console.error('cancelOrder error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};

@@ -127,7 +127,7 @@ export const authenticateToken = async (req, res, next) => {
     console.log('Token first 50 chars:', token.substring(0, 50) + '...');
     
     // Verify token
-    const secret = process.env.JWT_SECRET || 'your_secret_key_here';
+    const secret = process.env.JWT_SECRET_KEY;
     console.log('Using JWT secret:', secret);
     
     const decoded = jwt.verify(token, secret);

@@ -136,6 +136,140 @@ const userSchema = new mongoose.Schema({
   timestamps: true,
 });
 
+// Add to userSchema in Models/User.js
+
+// Cart Item Schema
+const cartItemSchema = new mongoose.Schema({
+  productId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product',
+    required: true
+  },
+  variantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true
+  },
+  variant: {
+    color: String,
+    size: String,
+    actualPrice: Number,
+    discountPrice: Number,
+    mainImage: String
+  },
+  quantity: {
+    type: Number,
+    required: true,
+    min: 1,
+    default: 1
+  },
+  price: {
+    type: Number,
+    required: true
+  },
+  addedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+// Order Item Schema
+const orderItemSchema = new mongoose.Schema({
+  productId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product',
+    required: true
+  },
+  variantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true
+  },
+  variant: {
+    color: String,
+    size: String,
+    actualPrice: Number,
+    discountPrice: Number,
+    mainImage: String
+  },
+  quantity: {
+    type: Number,
+    required: true
+  },
+  price: {
+    type: Number,
+    required: true
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded'],
+    default: 'pending'
+  }
+});
+
+// Order Schema
+const orderSchema = new mongoose.Schema({
+  orderId: {
+    type: String,
+    unique: true,
+    required: true
+  },
+  items: [orderItemSchema],
+  totalAmount: {
+    type: Number,
+    required: true
+  },
+  discountAmount: {
+    type: Number,
+    default: 0
+  },
+  finalAmount: {
+    type: Number,
+    required: true
+  },
+  deliveryAddress: {
+    type: addressSchema,
+    required: true
+  },
+  paymentMethod: {
+    type: String,
+    enum: ['cod', 'card', 'upi', 'netbanking'],
+    required: true
+  },
+  paymentStatus: {
+    type: String,
+    enum: ['pending', 'completed', 'failed', 'refunded'],
+    default: 'pending'
+  },
+  orderStatus: {
+    type: String,
+    enum: ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'],
+    default: 'pending'
+  },
+  trackingId: String,
+  estimatedDelivery: Date,
+  deliveredAt: Date,
+  cancelledAt: Date,
+  cancellationReason: String,
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+// Add to userSchema
+userSchema.add({
+  cart: [cartItemSchema],
+  orders: [orderSchema]
+});
+
+// Also add to indexes
+userSchema.index({ 'cart.productId': 1 });
+userSchema.index({ 'orders.createdAt': -1 });
+userSchema.index({ 'orders.orderStatus': 1 });
+
 // Define all indexes here to avoid duplicates
 userSchema.index({ email: 1 });
 userSchema.index({ mobile: 1 }, { unique: true, sparse: true });

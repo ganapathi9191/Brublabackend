@@ -88,7 +88,16 @@ export const adminLogin = async (req, res) => {
       };
     }
 
-    const secret = process.env.JWT_SECRET || 'your_secret_key_here';
+    const secret = process.env.JWT_SECRET_KEY ;
+
+    if (!secret) {
+      console.error('❌ JWT_SECRET is not defined in environment variables!');
+      return res.status(500).json({
+        success: false,
+        message: 'Server configuration error'
+      });
+    }
+    
     console.log('Login using secret:', secret);
 
     const token = jwt.sign(

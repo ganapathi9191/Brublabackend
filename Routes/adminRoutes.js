@@ -97,7 +97,7 @@ router.post('/products/:productId/variants/:variantId/images', uploadMultipleIma
 router.get('/products/:productId/variants/:variantId/images', getVariantImages);
 router.put('/products/:productId/variants/:variantId/main-image', setVariantMainImage);
 router.delete('/products/:productId/variants/:variantId/images', removeVariantImage);
-router.delete('/products/:productId/variants/images', deleteAllVariantImages);
+router.delete('/products/:productId/variants/:variantId/images', deleteAllVariantImages);
 
 
 export default router;

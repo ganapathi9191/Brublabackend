@@ -1052,7 +1052,6 @@ export const createProduct = async (req, res) => {
     try {
       variantsArray = typeof variants === 'string' ? JSON.parse(variants) : variants;
     } catch (e) {
-      console.error('Parse error:', e);
       variantsArray = [];
     }
 
@@ -1074,24 +1073,41 @@ export const createProduct = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Subcategory not found' });
     }
 
-    const imageFiles = req.files?.images || [];
-    const videoFiles = req.files?.videos || [];
-
-    if (!imageFiles.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'At least one product image is required'
+    // ✅ PROCESS FILES
+    // Group images by variant field name
+    const variantImageMap = {};
+    const videoFiles = [];
+    
+    if (req.files && Array.isArray(req.files)) {
+      req.files.forEach(file => {
+        if (file.mimetype.startsWith('image/')) {
+          // Extract variant index from fieldname (e.g., "variant_0_images" -> 0)
+          const match = file.fieldname.match(/variant_(\d+)_images/);
+          if (match) {
+            const variantIndex = parseInt(match[1]);
+            if (!variantImageMap[variantIndex]) {
+              variantImageMap[variantIndex] = [];
+            }
+            variantImageMap[variantIndex].push(file);
+          }
+        } else if (file.mimetype.startsWith('video/')) {
+          videoFiles.push(file);
+        }
       });
     }
 
-    // Process variants for NEW structure (price, sizes array)
-    const processedVariants = variantsArray.map((variant, index) => {
-      // Get images for this variant
-      const variantImages = imageFiles
-        .filter((_, i) => i % variantsArray.length === index)
-        .map(file => getFileUrl(req, path.basename(file.path), 'products'));
+    console.log('📸 Variant images:', Object.keys(variantImageMap).map(k => `${k}: ${variantImageMap[k].length} images`).join(', '));
 
-      // Ensure sizes array is properly formatted
+    // Process variants
+    const processedVariants = variantsArray.map((variant, index) => {
+      let variantImages = [];
+      
+      if (variantImageMap[index] && variantImageMap[index].length > 0) {
+        variantImages = variantImageMap[index].map(file => 
+          getFileUrl(req, path.basename(file.path), 'products')
+        );
+      }
+
       let sizesArray = variant.sizes || [];
       if (typeof sizesArray === 'string') {
         try {
@@ -1103,9 +1119,9 @@ export const createProduct = async (req, res) => {
 
       return {
         color: variant.color,
-        price: parseFloat(variant.price),  // ✅ Use 'price' not 'actualPrice'
+        price: parseFloat(variant.price),
         discountPrice: variant.discountPrice ? parseFloat(variant.discountPrice) : null,
-        sizes: sizesArray,  // ✅ Array of {size, stock}
+        sizes: sizesArray,
         images: variantImages,
         isActive: true
       };

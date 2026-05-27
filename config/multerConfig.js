@@ -130,12 +130,57 @@ const videoFilter = (req, file, cb) => {
 
 // ==================== MULTER MIDDLEWARES ====================
 
-// ✅ CORRECT: Use fields() for product creation (images + videos together)
+// // ✅ CORRECT: Use fields() for product creation (images + videos together)
+// export const uploadProductMedia = multer({
+//   storage: productImageStorage,
+//   limits: { 
+//     fileSize: 50 * 1024 * 1024, // 50MB limit
+//     files: 25 // Max 25 files total
+//   },
+//   fileFilter: (req, file, cb) => {
+//     if (file.fieldname === 'images') {
+//       imageFilter(req, file, cb);
+//     } else if (file.fieldname === 'videos') {
+//       videoFilter(req, file, cb);
+//     } else {
+//       cb(new Error('Invalid field name. Use "images" or "videos"'));
+//     }
+//   }
+// }).fields([
+//   { name: 'images', maxCount: 20 },  // Max 20 images
+//   { name: 'videos', maxCount: 5 }     // Max 5 videos
+// ]);
+
+// config/multerConfig.js
+
+// ✅ SIMPLE AND RELIABLE - Accepts any field name
 export const uploadProductMedia = multer({
   storage: productImageStorage,
   limits: { 
-    fileSize: 50 * 1024 * 1024, // 50MB limit
-    files: 25 // Max 25 files total
+    fileSize: 50 * 1024 * 1024, // 50MB limit per file
+    files: 50 // Max 50 files total
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow image files
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } 
+    // Allow video files
+    else if (file.mimetype.startsWith('video/')) {
+      cb(null, true);
+    }
+    else {
+      cb(new Error('Only images and videos are allowed'), false);
+    }
+  }
+}).any(); // ← KEY: .any() accepts any field names
+
+// Alternative: If you want to keep the old one for backward compatibility
+export const uploadProductMediaLegacy = multer({
+  storage: productImageStorage,
+  limits: { 
+    fileSize: 50 * 1024 * 1024,
+    files: 25
   },
   fileFilter: (req, file, cb) => {
     if (file.fieldname === 'images') {
@@ -147,8 +192,8 @@ export const uploadProductMedia = multer({
     }
   }
 }).fields([
-  { name: 'images', maxCount: 20 },  // Max 20 images
-  { name: 'videos', maxCount: 5 }     // Max 5 videos
+  { name: 'images', maxCount: 20 },
+  { name: 'videos', maxCount: 5 }
 ]);
 
 // Upload for product images (multiple) - array format

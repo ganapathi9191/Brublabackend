@@ -95,7 +95,6 @@
 
 // middleware/authMiddleware.js
 import jwt from 'jsonwebtoken';
-import axios from 'axios';
 
 export const authenticateToken = async (req, res, next) => {
   try {

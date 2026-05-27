@@ -97,7 +97,7 @@ export const adminLogin = async (req, res) => {
         message: 'Server configuration error'
       });
     }
-    
+
     console.log('Login using secret:', secret);
 
     const token = jwt.sign(
@@ -1010,19 +1010,11 @@ const deleteProductFiles = (filePaths) => {
 //   }
 // };
 
+// Controller/adminController.js - Updated createProduct for new structure
 export const createProduct = async (req, res) => {
   try {
-    // Get user from middleware or handle permanent admin
     let userId = req.user?.id;
     let userRole = req.user?.role;
-
-    // Handle permanent admin from header
-    const authHeader = req.headers.authorization;
-    if (!userId && authHeader === 'Bearer permanent_admin_token') {
-      userId = 'admin_permanent_001';
-      userRole = 'admin';
-      console.log('✅ Using permanent admin');
-    }
 
     if (!userId || !userRole) {
       return res.status(401).json({
@@ -1041,7 +1033,6 @@ export const createProduct = async (req, res) => {
       tags
     } = req.body;
 
-    // Validate role
     if (!['admin', 'designer', 'tailor'].includes(userRole)) {
       return res.status(403).json({
         success: false,
@@ -1049,7 +1040,6 @@ export const createProduct = async (req, res) => {
       });
     }
 
-    // Validate required fields
     if (!name || !description || !categoryId || !subcategoryId) {
       return res.status(400).json({
         success: false,
@@ -1057,48 +1047,35 @@ export const createProduct = async (req, res) => {
       });
     }
 
-    // Validate variants
+    // Parse variants
     let variantsArray = [];
     try {
       variantsArray = typeof variants === 'string' ? JSON.parse(variants) : variants;
     } catch (e) {
+      console.error('Parse error:', e);
       variantsArray = [];
     }
 
     if (!variantsArray.length) {
       return res.status(400).json({
         success: false,
-        message: 'At least one product variant is required'
+        message: 'At least one color variant is required'
       });
     }
 
     // Validate category
     const category = await Category.findById(categoryId);
     if (!category) {
-      return res.status(404).json({
-        success: false,
-        message: 'Category not found'
-      });
+      return res.status(404).json({ success: false, message: 'Category not found' });
     }
 
     const subcategory = category.subcategories.id(subcategoryId);
     if (!subcategory) {
-      return res.status(404).json({
-        success: false,
-        message: 'Subcategory not found in this category'
-      });
+      return res.status(404).json({ success: false, message: 'Subcategory not found' });
     }
 
-    // ✅ Get uploaded files - DECLARE ONLY ONCE
     const imageFiles = req.files?.images || [];
     const videoFiles = req.files?.videos || [];
-
-    // DEBUG - Remove after testing
-    console.log('=== FILE UPLOAD DEBUG ===');
-    console.log('req.files:', req.files);
-    console.log('imageFiles length:', imageFiles.length);
-    console.log('videoFiles length:', videoFiles.length);
-    console.log('All form fields:', Object.keys(req.body));
 
     if (!imageFiles.length) {
       return res.status(400).json({
@@ -1107,18 +1084,28 @@ export const createProduct = async (req, res) => {
       });
     }
 
-    // Process variants with images
+    // Process variants for NEW structure (price, sizes array)
     const processedVariants = variantsArray.map((variant, index) => {
+      // Get images for this variant
       const variantImages = imageFiles
         .filter((_, i) => i % variantsArray.length === index)
         .map(file => getFileUrl(req, path.basename(file.path), 'products'));
 
+      // Ensure sizes array is properly formatted
+      let sizesArray = variant.sizes || [];
+      if (typeof sizesArray === 'string') {
+        try {
+          sizesArray = JSON.parse(sizesArray);
+        } catch (e) {
+          sizesArray = [];
+        }
+      }
+
       return {
         color: variant.color,
-        size: variant.size,
-        actualPrice: parseFloat(variant.actualPrice),
+        price: parseFloat(variant.price),  // ✅ Use 'price' not 'actualPrice'
         discountPrice: variant.discountPrice ? parseFloat(variant.discountPrice) : null,
-        stock: parseInt(variant.stock) || 0,
+        sizes: sizesArray,  // ✅ Array of {size, stock}
         images: variantImages,
         isActive: true
       };
@@ -1182,7 +1169,6 @@ export const createProduct = async (req, res) => {
 
   } catch (error) {
     console.error('createProduct error:', error);
-    
     return res.status(500).json({
       success: false,
       message: error.message || 'Internal server error'

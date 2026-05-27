@@ -71,18 +71,19 @@ router.delete('/delete-image/:userId', deleteProfileImage);
 router.put('/live-location/:userId', updateLiveLocation);
 router.get('/live-location/:userId', getLiveLocation);
 
-// Address routes (no authentication)
-router.post('/add/:userId', addAddress);
-router.get('/all/:userId', getAllAddresses);
-router.get('/:userId/:addressId', getAddressById);
-router.put('/update/:userId/:addressId', updateAddress);
-router.delete('/delete/:userId/:addressId', deleteAddress);
 
 // ==================== WISHLIST ROUTES ====================
 router.post('/wishlist/:userId/add', authenticateToken, addToWishlist);
 router.delete('/wishlist/:userId/remove', authenticateToken, removeFromWishlist);
 router.get('/wishlist/:userId', authenticateToken, getWishlist);
 router.get('/wishlist/:userId/check', authenticateToken, checkWishlist);
+
+// Address routes (no authentication)
+router.post('/add/:userId', addAddress);
+router.get('/all/:userId', getAllAddresses);
+router.get('/:userId/:addressId', getAddressById);
+router.put('/update/:userId/:addressId', updateAddress);
+router.delete('/delete/:userId/:addressId', deleteAddress);
 
 // ==================== CART ROUTES ====================
 router.post('/cart/:userId/add', authenticateToken, addToCart);
@@ -96,6 +97,7 @@ router.post('/order/:userId/create', authenticateToken, createOrder);
 router.get('/order/:userId', authenticateToken, getUserOrders);
 router.get('/order/:userId/:orderId', authenticateToken, getOrderById);
 router.put('/order/:userId/:orderId/cancel', authenticateToken, cancelOrder);
+
 
 
 export default router;

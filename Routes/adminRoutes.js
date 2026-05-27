@@ -2,7 +2,7 @@
 // routes/adminRoutes.js
 import express from 'express';
 import { upload, uploadProductMedia, uploadMultipleImages} from '../config/multerConfig.js';
-import { authenticateToken } from '../Middleware/authMiddleware.js';
+import { authenticateToken } from '../middleware/authMiddleware.js';
 
 import {
   // Auth
@@ -74,7 +74,7 @@ router.post('/categories', createCategory); // No image upload needed
 router.get('/categories', getAllCategories);
 router.get('/categories/:id', getCategoryById);
 router.put('/categories/:id', updateCategoryById); // No image upload needed
-router.delete('/categories/:id', deleteCategoryById);
+router.delete('/categories/:id', deleteCategoryById); 
 
 // ==================== SUBCATEGORY MANAGEMENT ====================
 router.post('/categories/:categoryId/subcategories', upload.single('image'), createSubcategory);

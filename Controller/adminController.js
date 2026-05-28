@@ -1619,7 +1619,6 @@ export const addProductReview = async (req, res) => {
   }
 };
 
-// Get Products By Subcategory
 export const getProductsBySubcategory = async (req, res) => {
   try {
     const { subcategoryId } = req.params;
@@ -1627,39 +1626,107 @@ export const getProductsBySubcategory = async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const products = await Product.find({
-      subcategoryId,
+    // First, find which category contains this subcategory
+    let category = null;
+    let subcategory = null;
+    let categoryId = null;
+
+    // Search for category that contains this subcategory
+    const allCategories = await Category.find();
+    
+    for (const cat of allCategories) {
+      const foundSubcategory = cat.subcategories.id(subcategoryId);
+      if (foundSubcategory) {
+        category = {
+          _id: cat._id,
+          name: cat.name,
+          isActive: cat.isActive
+        };
+        subcategory = {
+          _id: foundSubcategory._id,
+          name: foundSubcategory.name,
+          image: foundSubcategory.image,
+          isActive: foundSubcategory.isActive
+        };
+        categoryId = cat._id;
+        break;
+      }
+    }
+
+    // If category not found, return error
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: 'Subcategory not found'
+      });
+    }
+
+    // Build product query
+    const query = {
+      subcategoryId: subcategoryId,
       isActive: true,
       approvalStatus: { $in: ['approved', 'not_required'] }
-    })
+    };
+
+    // Get products with pagination
+    const products = await Product.find(query)
       .populate('categoryId', 'name')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
-    const total = await Product.countDocuments({
-      subcategoryId,
-      isActive: true
+    const total = await Product.countDocuments(query);
+
+    // Transform products for response
+    const transformedProducts = products.map(product => {
+      const productObj = product.toObject();
+      
+      const mainImage = productObj.mainImages?.[0] || 
+                        productObj.variants?.[0]?.images?.[0] || 
+                        null;
+      
+      const prices = productObj.variants?.map(v => v.discountPrice || v.price) || [];
+      const priceRange = {
+        min: prices.length ? Math.min(...prices) : 0,
+        max: prices.length ? Math.max(...prices) : 0
+      };
+      
+      return {
+        _id: productObj._id,
+        name: productObj.name,
+        description: productObj.description,
+        displayPrice: productObj.displayPrice,
+        displayActualPrice: productObj.displayActualPrice,
+        maxDiscount: productObj.maxDiscount,
+        mainImage: mainImage,
+        priceRange: priceRange,
+        availableColors: productObj.availableColors || [],
+        availableSizes: productObj.availableSizes || [],
+        totalStock: productObj.totalStock || 0,
+        averageRating: productObj.averageRating,
+        createdAt: productObj.createdAt
+      };
     });
 
     return res.status(200).json({
       success: true,
-      count: products.length,
+      category: category,
+      subcategory: subcategory,
+      count: transformedProducts.length,
       total,
       page: parseInt(page),
       pages: Math.ceil(total / parseInt(limit)),
-      products
+      products: transformedProducts
     });
 
   } catch (error) {
     console.error('getProductsBySubcategory error:', error);
     return res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      message: error.message || 'Internal server error'
     });
   }
-};      
-
+};
 
 // ==================== ADD IMAGES TO VARIANT ====================
 export const addVariantImages = async (req, res) => {

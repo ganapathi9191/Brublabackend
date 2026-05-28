@@ -17,10 +17,8 @@ import {
   getAddressById,
   updateAddress,
   deleteAddress,
-  addToWishlist,
-  removeFromWishlist,
+  toggleWishlist,
   getWishlist,
-  checkWishlist,
   addToCart,
   updateCartQuantity,
   removeFromCart,
@@ -73,10 +71,21 @@ router.get('/live-location/:userId', getLiveLocation);
 
 
 // ==================== WISHLIST ROUTES ====================
-router.post('/wishlist/:userId/add', authenticateToken, addToWishlist);
-router.delete('/wishlist/:userId/remove', authenticateToken, removeFromWishlist);
-router.get('/wishlist/:userId', authenticateToken, getWishlist);
-router.get('/wishlist/:userId/check', authenticateToken, checkWishlist);
+router.post('/wishlist/:userId/toggle', toggleWishlist);
+router.get('/wishlist/:userId', getWishlist);
+
+// ==================== CART ROUTES ====================
+router.post('/cart/:userId/add',  addToCart);
+router.put('/cart/:userId/update',  updateCartQuantity);
+router.delete('/cart/:userId/remove', removeFromCart);
+router.get('/cart/:userId', getCart);
+router.delete('/cart/:userId/clear', clearCart);
+
+// ==================== ORDER ROUTES ====================
+router.post('/order/:userId/create', createOrder);
+router.get('/order/:userId', getUserOrders);
+router.get('/order/:userId/:orderId', getOrderById);
+router.put('/order/:userId/:orderId/cancel', cancelOrder);
 
 // Address routes (no authentication)
 router.post('/add/:userId', addAddress);
@@ -85,18 +94,6 @@ router.get('/:userId/:addressId', getAddressById);
 router.put('/update/:userId/:addressId', updateAddress);
 router.delete('/delete/:userId/:addressId', deleteAddress);
 
-// ==================== CART ROUTES ====================
-router.post('/cart/:userId/add', authenticateToken, addToCart);
-router.put('/cart/:userId/update', authenticateToken, updateCartQuantity);
-router.delete('/cart/:userId/remove', authenticateToken, removeFromCart);
-router.get('/cart/:userId', authenticateToken, getCart);
-router.delete('/cart/:userId/clear', authenticateToken, clearCart);
-
-// ==================== ORDER ROUTES ====================
-router.post('/order/:userId/create', authenticateToken, createOrder);
-router.get('/order/:userId', authenticateToken, getUserOrders);
-router.get('/order/:userId/:orderId', authenticateToken, getOrderById);
-router.put('/order/:userId/:orderId/cancel', authenticateToken, cancelOrder);
 
 
 export default router;

@@ -1343,7 +1343,7 @@ export const getProductsByCreatorId = async (req, res) => {
   }
 };
 
-// Update Product By ID
+// Update Product By ID - Updated for New Structure
 export const updateProductById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1382,7 +1382,9 @@ export const updateProductById = async (req, res) => {
     // Update basic fields
     if (name) product.name = name;
     if (description) product.description = description;
-    if (isActive !== undefined) product.isActive = isActive === 'true';
+    if (isActive !== undefined) {
+      product.isActive = typeof isActive === 'boolean' ? isActive : isActive === 'true';
+    }
 
     // Update category if changed
     if (categoryId && categoryId !== product.categoryId.toString()) {
@@ -1409,33 +1411,60 @@ export const updateProductById = async (req, res) => {
       product.categoryId = categoryId;
     }
 
-    // Update variants if provided
+    // ✅ UPDATE VARIANTS - FIXED FOR NEW STRUCTURE
     if (variants) {
       try {
         let variantsArray = typeof variants === 'string' ? JSON.parse(variants) : variants;
         
-        // Process new images if any
-        if (imageFiles.length) {
-          variantsArray = variantsArray.map((variant, index) => {
-            const variantImages = imageFiles
-              .filter((_, i) => i % variantsArray.length === index)
-              .map(file => getFileUrl(req, path.basename(file.path), 'products'));
-            
-            return {
-              ...variant,
-              actualPrice: parseFloat(variant.actualPrice),
-              discountPrice: variant.discountPrice ? parseFloat(variant.discountPrice) : null,
-              stock: parseInt(variant.stock) || 0,
-              images: variantImages.length ? variantImages : variant.images || [],
-            };
-          });
-        }
+        // Track current image index for sequential distribution
+        let currentImageIndex = 0;
         
-        product.variants = variantsArray;
+        // Process each variant for new structure
+        const processedVariants = variantsArray.map((variant, index) => {
+          let variantImages = [];
+          
+          // Handle image distribution
+          if (imageFiles.length > 0) {
+            const imageCount = variant.imageCount || 1;
+            if (imageCount > 0 && imageFiles.length > currentImageIndex) {
+              variantImages = imageFiles
+                .slice(currentImageIndex, currentImageIndex + imageCount)
+                .map(file => getFileUrl(req, path.basename(file.path), 'products'));
+              currentImageIndex += imageCount;
+            }
+          } else if (variant.images && Array.isArray(variant.images)) {
+            // Keep existing images if no new ones
+            variantImages = variant.images;
+          }
+          
+          // Process sizes array
+          let sizesArray = variant.sizes || [];
+          if (typeof sizesArray === 'string') {
+            try {
+              sizesArray = JSON.parse(sizesArray);
+            } catch (e) {
+              sizesArray = [];
+            }
+          }
+          
+          return {
+            color: variant.color,
+            price: parseFloat(variant.price),
+            discountPrice: variant.discountPrice ? parseFloat(variant.discountPrice) : null,
+            sizes: sizesArray,
+            images: variantImages,
+            isActive: variant.isActive !== false
+          };
+        });
+        
+        product.variants = processedVariants;
+        
       } catch (e) {
+        console.error('Variants parse error:', e);
         return res.status(400).json({
           success: false,
-          message: 'Invalid variants format'
+          message: 'Invalid variants format',
+          error: e.message
         });
       }
     }
@@ -1730,10 +1759,10 @@ export const getProductsBySubcategory = async (req, res) => {
 
 // ==================== ADD IMAGES TO VARIANT ====================
 export const addVariantImages = async (req, res) => {
-   console.log('=== DEBUG ===');
+  console.log('=== ADD VARIANT IMAGES DEBUG ===');
   console.log('req.files:', req.files);
-  console.log('req.files?.images:', req.files?.images);
   console.log('Content-Type:', req.headers['content-type']);
+  
   try {
     const { productId, variantId } = req.params;
     const imageFiles = req.files || [];
@@ -1761,23 +1790,26 @@ export const addVariantImages = async (req, res) => {
       getFileUrl(req, path.basename(file.path), 'products')
     );
     
+    // Add images to variant
     variant.images.push(...imageUrls);
     
-    if (!variant.mainImage && imageUrls.length) {
-      variant.mainImage = imageUrls[0];
-    }
+    // Update mainImages array in product (first image of each variant)
+    product.mainImages = product.variants
+      .filter(v => v.images && v.images.length > 0)
+      .map(v => v.images[0]);
     
     await product.save();
     
     return res.status(200).json({
       success: true,
-      message: `${imageUrls.length} image(s) added`,
+      message: `${imageUrls.length} image(s) added to ${variant.color}`,
       variant: {
         id: variant._id,
         color: variant.color,
-        size: variant.size,
-        mainImage: variant.mainImage,
-        images: variant.images
+        price: variant.price,
+        discountPrice: variant.discountPrice,
+        images: variant.images,
+        sizes: variant.sizes
       }
     });
     
@@ -1807,9 +1839,10 @@ export const getVariantImages = async (req, res) => {
       variant: {
         id: variant._id,
         color: variant.color,
-        size: variant.size,
-        mainImage: variant.mainImage,
+        price: variant.price,
+        discountPrice: variant.discountPrice,
         images: variant.images,
+        sizes: variant.sizes,
         totalImages: variant.images.length
       }
     });
@@ -1850,7 +1883,21 @@ export const setVariantMainImage = async (req, res) => {
       });
     }
     
-    variant.mainImage = imageUrl;
+    // Note: In new schema, there's no separate mainImage field.
+    // The first image in the array is considered the main image.
+    // To set a main image, we need to reorder the images array.
+    const currentIndex = variant.images.indexOf(imageUrl);
+    if (currentIndex !== -1) {
+      // Move the selected image to the front
+      variant.images.splice(currentIndex, 1);
+      variant.images.unshift(imageUrl);
+    }
+    
+    // Update product mainImages
+    product.mainImages = product.variants
+      .filter(v => v.images && v.images.length > 0)
+      .map(v => v.images[0]);
+    
     await product.save();
     
     return res.status(200).json({
@@ -1859,9 +1906,10 @@ export const setVariantMainImage = async (req, res) => {
       variant: {
         id: variant._id,
         color: variant.color,
-        size: variant.size,
-        mainImage: variant.mainImage,
-        images: variant.images
+        price: variant.price,
+        discountPrice: variant.discountPrice,
+        images: variant.images,
+        sizes: variant.sizes
       }
     });
     
@@ -1901,14 +1949,17 @@ export const removeVariantImage = async (req, res) => {
       });
     }
     
+    // Remove image from array
     variant.images = variant.images.filter(img => img !== imageUrl);
     
-    if (variant.mainImage === imageUrl) {
-      variant.mainImage = variant.images[0] || null;
-    }
+    // Update product mainImages
+    product.mainImages = product.variants
+      .filter(v => v.images && v.images.length > 0)
+      .map(v => v.images[0]);
     
     await product.save();
     
+    // Delete physical file if not a URL
     if (!imageUrl.startsWith('http')) {
       deleteFile(imageUrl);
     }
@@ -1919,9 +1970,10 @@ export const removeVariantImage = async (req, res) => {
       variant: {
         id: variant._id,
         color: variant.color,
-        size: variant.size,
-        mainImage: variant.mainImage,
-        images: variant.images
+        price: variant.price,
+        discountPrice: variant.discountPrice,
+        images: variant.images,
+        sizes: variant.sizes
       }
     });
     
@@ -1946,31 +1998,509 @@ export const deleteAllVariantImages = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Variant not found' });
     }
     
+    // Delete physical files
     variant.images.forEach(image => {
       if (!image.startsWith('http')) {
         deleteFile(image);
       }
     });
     
+    // Clear images array
     variant.images = [];
-    variant.mainImage = '';
+    
+    // Update product mainImages
+    product.mainImages = product.variants
+      .filter(v => v.images && v.images.length > 0)
+      .map(v => v.images[0]);
     
     await product.save();
     
     return res.status(200).json({
       success: true,
-      message: 'All images removed from variant',
+      message: `All images removed from ${variant.color} variant`,
       variant: {
         id: variant._id,
         color: variant.color,
-        size: variant.size,
-        mainImage: variant.mainImage,
-        images: variant.images
+        price: variant.price,
+        discountPrice: variant.discountPrice,
+        images: variant.images,
+        sizes: variant.sizes
       }
     });
     
   } catch (error) {
     console.error('deleteAllVariantImages error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== REORDER VARIANT IMAGES ====================
+export const reorderVariantImages = async (req, res) => {
+  try {
+    const { productId, variantId } = req.params;
+    const { imageOrder } = req.body;
+    
+    if (!imageOrder || !Array.isArray(imageOrder)) {
+      return res.status(400).json({
+        success: false,
+        message: 'imageOrder array is required'
+      });
+    }
+    
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    
+    const variant = product.variants.id(variantId);
+    if (!variant) {
+      return res.status(404).json({ success: false, message: 'Variant not found' });
+    }
+    
+    // Verify all images exist
+    const allImagesExist = imageOrder.every(url => variant.images.includes(url));
+    if (!allImagesExist) {
+      return res.status(400).json({
+        success: false,
+        message: 'Some images in order do not exist in variant'
+      });
+    }
+    
+    variant.images = imageOrder;
+    
+    // Update product mainImages
+    product.mainImages = product.variants
+      .filter(v => v.images && v.images.length > 0)
+      .map(v => v.images[0]);
+    
+    await product.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Images reordered successfully',
+      variant: {
+        id: variant._id,
+        color: variant.color,
+        price: variant.price,
+        discountPrice: variant.discountPrice,
+        images: variant.images,
+        sizes: variant.sizes
+      }
+    });
+    
+  } catch (error) {
+    console.error('reorderVariantImages error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== ADMIN ORDER MANAGEMENT ====================
+
+// Get all orders (Admin)
+export const getAllOrders = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      status,
+      paymentMethod,
+      paymentStatus,
+      startDate,
+      endDate,
+      search,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    console.log('=== GET ALL ORDERS ===');
+    console.log('Filters:', { page, limit, status, paymentMethod, paymentStatus, startDate, endDate, search });
+
+    // Build query
+    let query = {};
+
+    // Filter by order status
+    if (status && status !== 'all') {
+      query.orderStatus = status;
+    }
+
+    // Filter by payment method
+    if (paymentMethod && paymentMethod !== 'all') {
+      query.paymentMethod = paymentMethod;
+    }
+
+    // Filter by payment status
+    if (paymentStatus && paymentStatus !== 'all') {
+      query.paymentStatus = paymentStatus;
+    }
+
+    // Filter by date range
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate) query.createdAt.$lte = new Date(endDate);
+    }
+
+    // Search by order ID or user details (need to search users first)
+    let userIds = [];
+    if (search) {
+      // Search by order ID
+      if (search.startsWith('ORD')) {
+        query.orderId = { $regex: search, $options: 'i' };
+      } else {
+        // Search by user name or mobile
+        const users = await User.find({
+          $or: [
+            { name: { $regex: search, $options: 'i' } },
+            { mobile: { $regex: search, $options: 'i' } },
+            { email: { $regex: search, $options: 'i' } }
+          ]
+        }).select('_id');
+        
+        userIds = users.map(u => u._id);
+        if (userIds.length > 0) {
+          query.userId = { $in: userIds };
+        } else {
+          // If no users found, return empty result
+          return res.status(200).json({
+            success: true,
+            count: 0,
+            total: 0,
+            page: parseInt(page),
+            pages: 0,
+            orders: []
+          });
+        }
+      }
+    }
+
+    // Pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Sorting
+    let sort = {};
+    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Get orders from database
+    const orders = await Order.find(query)
+      .sort(sort)
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate('userId', 'name email mobile');
+
+    const total = await Order.countDocuments(query);
+
+    // Get order statistics
+    const stats = await Order.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalOrders: { $sum: 1 },
+          totalRevenue: { $sum: '$finalAmount' },
+          averageOrderValue: { $avg: '$finalAmount' },
+          pendingOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'pending'] }, 1, 0] } },
+          confirmedOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'confirmed'] }, 1, 0] } },
+          processingOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'processing'] }, 1, 0] } },
+          shippedOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'shipped'] }, 1, 0] } },
+          deliveredOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'delivered'] }, 1, 0] } },
+          cancelledOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'cancelled'] }, 1, 0] } },
+          codOrders: { $sum: { $cond: [{ $eq: ['$paymentMethod', 'cod'] }, 1, 0] } },
+          prepaidOrders: { $sum: { $cond: [{ $ne: ['$paymentMethod', 'cod'] }, 1, 0] } }
+        }
+      }
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      count: orders.length,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / parseInt(limit)),
+      stats: stats[0] || {
+        totalOrders: 0,
+        totalRevenue: 0,
+        averageOrderValue: 0,
+        pendingOrders: 0,
+        confirmedOrders: 0,
+        processingOrders: 0,
+        shippedOrders: 0,
+        deliveredOrders: 0,
+        cancelledOrders: 0,
+        codOrders: 0,
+        prepaidOrders: 0
+      },
+      orders
+    });
+
+  } catch (error) {
+    console.error('getAllOrders error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get single order by ID (Admin)
+export const getOrderByIdAdmin = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    const order = await Order.findById(orderId).populate('userId', 'name email mobile');
+    
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Get product details for each item
+    const itemsWithDetails = await Promise.all(order.items.map(async (item) => {
+      const product = await Product.findById(item.productId).select('name description images');
+      return {
+        ...item.toObject(),
+        productName: product?.name,
+        productDescription: product?.description,
+        productImage: product?.images?.[0] || null
+      };
+    }));
+
+    const orderWithDetails = {
+      ...order.toObject(),
+      items: itemsWithDetails
+    };
+
+    return res.status(200).json({
+      success: true,
+      order: orderWithDetails
+    });
+
+  } catch (error) {
+    console.error('getOrderByIdAdmin error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Update order status (Admin)
+export const updateOrderStatus = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { orderStatus, paymentStatus, trackingId, estimatedDelivery, adminNotes } = req.body;
+
+    console.log('=== UPDATE ORDER STATUS ===');
+    console.log('orderId:', orderId);
+    console.log('orderStatus:', orderStatus);
+    console.log('paymentStatus:', paymentStatus);
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    const oldStatus = order.orderStatus;
+    const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+    
+    if (orderStatus && !validStatuses.includes(orderStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid order status. Must be one of: ${validStatuses.join(', ')}`
+      });
+    }
+
+    // Update fields
+    if (orderStatus) order.orderStatus = orderStatus;
+    if (paymentStatus) order.paymentStatus = paymentStatus;
+    if (trackingId) order.trackingId = trackingId;
+    if (estimatedDelivery) order.estimatedDelivery = new Date(estimatedDelivery);
+    if (adminNotes) order.adminNotes = adminNotes;
+    
+    // Set delivered date
+    if (orderStatus === 'delivered' && oldStatus !== 'delivered') {
+      order.deliveredAt = new Date();
+    }
+    
+    // Set cancelled date
+    if (orderStatus === 'cancelled' && oldStatus !== 'cancelled') {
+      order.cancelledAt = new Date();
+    }
+
+    order.updatedAt = new Date();
+    await order.save();
+
+    // Add notification for user
+    const user = await User.findById(order.userId);
+    if (user) {
+      user.notifications.push({
+        message: `Your order ${order.orderId} status has been updated to ${orderStatus}`,
+        type: 'info',
+        createdAt: new Date()
+      });
+      await user.save();
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Order status updated from ${oldStatus} to ${order.orderStatus}`,
+      order: {
+        _id: order._id,
+        orderId: order.orderId,
+        orderStatus: order.orderStatus,
+        paymentStatus: order.paymentStatus,
+        trackingId: order.trackingId,
+        estimatedDelivery: order.estimatedDelivery,
+        updatedAt: order.updatedAt
+      }
+    });
+
+  } catch (error) {
+    console.error('updateOrderStatus error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get order statistics (Admin Dashboard)
+export const getOrderStatistics = async (req, res) => {
+  try {
+    const { period = 'month' } = req.query; // day, week, month, year
+
+    let dateFilter = {};
+    const now = new Date();
+    
+    if (period === 'day') {
+      dateFilter = {
+        createdAt: {
+          $gte: new Date(now.setHours(0, 0, 0, 0)),
+          $lte: new Date(now.setHours(23, 59, 59, 999))
+        }
+      };
+    } else if (period === 'week') {
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+      dateFilter = {
+        createdAt: { $gte: startOfWeek }
+      };
+    } else if (period === 'month') {
+      dateFilter = {
+        createdAt: {
+          $gte: new Date(now.getFullYear(), now.getMonth(), 1),
+          $lte: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+        }
+      };
+    } else if (period === 'year') {
+      dateFilter = {
+        createdAt: {
+          $gte: new Date(now.getFullYear(), 0, 1),
+          $lte: new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999)
+        }
+      };
+    }
+
+    const stats = await Order.aggregate([
+      { $match: dateFilter },
+      {
+        $group: {
+          _id: null,
+          totalOrders: { $sum: 1 },
+          totalRevenue: { $sum: '$finalAmount' },
+          averageOrderValue: { $avg: '$finalAmount' },
+          pendingOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'pending'] }, 1, 0] } },
+          confirmedOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'confirmed'] }, 1, 0] } },
+          processingOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'processing'] }, 1, 0] } },
+          shippedOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'shipped'] }, 1, 0] } },
+          deliveredOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'delivered'] }, 1, 0] } },
+          cancelledOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'cancelled'] }, 1, 0] } }
+        }
+      }
+    ]);
+
+    // Get daily sales for chart
+    const dailySales = await Order.aggregate([
+      { $match: dateFilter },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+          orders: { $sum: 1 },
+          revenue: { $sum: '$finalAmount' }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      period,
+      stats: stats[0] || {
+        totalOrders: 0,
+        totalRevenue: 0,
+        averageOrderValue: 0,
+        pendingOrders: 0,
+        confirmedOrders: 0,
+        processingOrders: 0,
+        shippedOrders: 0,
+        deliveredOrders: 0,
+        cancelledOrders: 0
+      },
+      dailySales
+    });
+
+  } catch (error) {
+    console.error('getOrderStatistics error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get user orders with status (User)
+export const getUserOrdersWithStatus = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { status, page = 1, limit = 10 } = req.query;
+
+    let query = { userId };
+    
+    if (status && status !== 'all') {
+      query.orderStatus = status;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const orders = await Order.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Order.countDocuments(query);
+
+    // Get order status counts for user
+    const statusCounts = await Order.aggregate([
+      { $match: { userId: order.userId } },
+      {
+        $group: {
+          _id: '$orderStatus',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const statusMap = {
+      pending: 0,
+      confirmed: 0,
+      processing: 0,
+      shipped: 0,
+      delivered: 0,
+      cancelled: 0
+    };
+    
+    statusCounts.forEach(item => {
+      statusMap[item._id] = item.count;
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: orders.length,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / parseInt(limit)),
+      statusCounts: statusMap,
+      orders
+    });
+
+  } catch (error) {
+    console.error('getUserOrdersWithStatus error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

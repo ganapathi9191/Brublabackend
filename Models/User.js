@@ -103,9 +103,15 @@ const userSchema = new mongoose.Schema({
   liveLocation: liveLocationSchema,
   wishlist: [
     {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-    },
+      productId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Product',
+      },
+        addedAt: {
+        type: Date,
+        default: Date.now,
+      }
+    }
   ],
   notifications: [
     {
@@ -149,6 +155,10 @@ const cartItemSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     required: true
   },
+  sizeId: {  
+    type: mongoose.Schema.Types.ObjectId,
+    required: true
+  },
   variant: {
     color: String,
     size: String,
@@ -180,6 +190,10 @@ const orderItemSchema = new mongoose.Schema({
     required: true
   },
   variantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true
+  },
+  sizeId: {
     type: mongoose.Schema.Types.ObjectId,
     required: true
   },

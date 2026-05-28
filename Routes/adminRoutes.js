@@ -47,7 +47,13 @@ import {
   getVariantImages,
   setVariantMainImage,
   removeVariantImage,
-  deleteAllVariantImages
+  deleteAllVariantImages,
+  reorderVariantImages,
+  // Admin Order Management
+  getAllOrders,
+  getOrderStatistics,
+  getOrderByIdAdmin,
+  updateOrderStatus
 } from '../Controller/adminController.js';
 
 const router = express.Router();
@@ -70,7 +76,8 @@ router.put('/banners/:id', upload.single('image'), updateBannerById);
 router.delete('/banners/:id', deleteBannerById);
 
 // ==================== CATEGORY MANAGEMENT ====================
-router.post('/categories', createCategory); // No image upload needed
+
+router.post('/categories', createCategory); 
 router.get('/categories', getAllCategories);
 router.get('/categories/:id', getCategoryById);
 router.put('/categories/:id', updateCategoryById); // No image upload needed
@@ -98,6 +105,13 @@ router.get('/products/:productId/variants/:variantId/images', getVariantImages);
 router.put('/products/:productId/variants/:variantId/main-image', setVariantMainImage);
 router.delete('/products/:productId/variants/:variantId/images', removeVariantImage);
 router.delete('/products/:productId/variants/:variantId/images', deleteAllVariantImages);
+router.put('/products/:productId/variants/:variantId/images/reorder', reorderVariantImages);
+
+// ==================== ADMIN ORDER MANAGEMENT ====================
+router.get('/orders', authenticateToken, getAllOrders);
+router.get('/orders/statistics', authenticateToken, getOrderStatistics);
+router.get('/orders/:orderId', authenticateToken, getOrderByIdAdmin);
+router.put('/orders/:orderId/status', authenticateToken, updateOrderStatus);
 
 
 export default router;

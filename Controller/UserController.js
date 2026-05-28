@@ -786,242 +786,270 @@ export const deleteAddress = async (req, res) => {
 
 
 
-// ==================== ADD TO WISHLIST ====================
-// Add to wishlist - Debug version
-export const addToWishlist = async (req, res) => {
+// ==================== TOGGLE WISHLIST (Only Product ID) ====================
+export const toggleWishlist = async (req, res) => {
   try {
     const { userId } = req.params;
     const { productId } = req.body;
 
-    console.log('=== DEBUG ADD TO WISHLIST ===');
+    console.log('=== TOGGLE WISHLIST ===');
     console.log('userId:', userId);
     console.log('productId:', productId);
 
     // Validate
     if (!productId) {
-      return res.status(400).json({ success: false, message: 'Product ID is required' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Product ID is required' 
+      });
     }
 
     // Check product exists
     const product = await Product.findById(productId);
-    console.log('Product found:', product ? product._id : 'NOT FOUND');
-    
     if (!product) {
-      return res.status(404).json({ success: false, message: 'Product not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Product not found' 
+      });
     }
 
     // Get user
     const user = await User.findById(userId);
-    console.log('User found:', user ? user._id : 'NOT FOUND');
-    console.log('Current wishlist:', user.wishlist);
-
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    // Check if already in wishlist
-    if (user.wishlist.includes(productId)) {
-      return res.status(400).json({ success: false, message: 'Product already in wishlist' });
-    }
-
-    // Add to wishlist
-    user.wishlist.push(productId);
-    await user.save();
-    console.log('After save, wishlist:', user.wishlist);
-
-    // ✅ Try a different approach to get populated data
-    const freshUser = await User.findById(userId);
-    console.log('Fresh user wishlist IDs:', freshUser.wishlist);
-
-    // Manually get products
-    const products = await Product.find({ _id: { $in: freshUser.wishlist } });
-    console.log('Products found:', products.length);
-
-    const wishlistItems = products.map(p => ({
-      _id: p._id,
-      name: p.name,
-      displayPrice: p.displayPrice,
-      displayActualPrice: p.displayActualPrice,
-      maxDiscount: p.maxDiscount
-    }));
-
-    return res.status(200).json({
-      success: true,
-      message: 'Added to wishlist',
-      count: wishlistItems.length,
-      wishlist: wishlistItems
-    });
-
-  } catch (error) {
-    console.error('addToWishlist error:', error);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-// ==================== REMOVE FROM WISHLIST ====================
-export const removeFromWishlist = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { productId } = req.body;
-
-    if (!productId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Product ID is required'
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
       });
     }
 
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+    // Initialize wishlist if needed
+    if (!user.wishlist) {
+      user.wishlist = [];
     }
 
-    // Check if product exists in wishlist
-    if (!user.wishlist.includes(productId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Product not in wishlist'
+    // Check if already in wishlist (by productId only)
+    const existingIndex = user.wishlist.findIndex(
+      item => item.productId?.toString() === productId
+    );
+
+    let message = '';
+    let isInWishlist = false;
+
+    if (existingIndex !== -1) {
+      // Remove from wishlist
+      user.wishlist.splice(existingIndex, 1);
+      message = 'Removed from wishlist';
+      isInWishlist = false;
+    } else {
+      // Add to wishlist - push an OBJECT with productId only
+      user.wishlist.push({
+        productId: productId,
+        addedAt: new Date()
       });
+      message = 'Added to wishlist';
+      isInWishlist = true;
     }
 
-    // Remove from wishlist
-    user.wishlist = user.wishlist.filter(id => id.toString() !== productId);
     await user.save();
 
-    // ✅ Fetch fresh user with populated wishlist
+    // Get updated wishlist with populated product data
     const updatedUser = await User.findById(userId).populate({
-      path: 'wishlist',
+      path: 'wishlist.productId',
       select: 'name description displayPrice displayActualPrice maxDiscount variants averageRating'
     });
 
     // Transform wishlist items
-    const wishlistItems = updatedUser.wishlist.map(item => {
-      const productObj = item.toObject();
-      const firstVariant = productObj.variants?.[0];
-      const mainImage = firstVariant?.mainImage || firstVariant?.images?.[0] || null;
+    const wishlistItems = (updatedUser.wishlist || []).map(item => {
+      const productData = item.productId;
+      const firstVariant = productData?.variants?.[0];
+      const mainImage = firstVariant?.images?.[0] || productData?.mainImages?.[0] || null;
       
       return {
-        _id: productObj._id,
-        name: productObj.name,
-        description: productObj.description,
-        displayPrice: productObj.displayPrice,
-        displayActualPrice: productObj.displayActualPrice,
-        maxDiscount: productObj.maxDiscount,
+        _id: item._id,
+        productId: productData?._id,
+        productName: productData?.name,
+        productDescription: productData?.description,
+        displayPrice: productData?.displayPrice,
+        displayActualPrice: productData?.displayActualPrice,
+        maxDiscount: productData?.maxDiscount,
         mainImage: mainImage,
-        averageRating: productObj.averageRating || 0,
-        variantsCount: productObj.variants?.length || 0
+        averageRating: productData?.averageRating || 0,
+        variantsCount: productData?.variants?.length || 0,
+        addedAt: item.addedAt
       };
     });
 
     return res.status(200).json({
       success: true,
-      message: 'Removed from wishlist',
+      message: message,
+      isInWishlist: isInWishlist,
       count: wishlistItems.length,
       wishlist: wishlistItems
     });
 
   } catch (error) {
-    console.error('removeFromWishlist error:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    console.error('toggleWishlist error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
   }
 };
 
-// ==================== GET WISHLIST ====================
 export const getWishlist = async (req, res) => {
   try {
     const { userId } = req.params;
 
-    const user = await User.findById(userId).populate({
-      path: 'wishlist',
-      select: 'name description displayPrice displayActualPrice maxDiscount variants averageRating'
-    });
-
+    // Get user
+    const user = await User.findById(userId);
+    
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
     }
 
-    const wishlistItems = user.wishlist.map(product => {
-      const productObj = product.toObject();
-      const firstVariant = productObj.variants?.[0];
-      const mainImage = firstVariant?.mainImage || firstVariant?.images?.[0] || null;
+    // If wishlist is empty or not exists, return empty array
+    if (!user.wishlist || user.wishlist.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        wishlist: []
+      });
+    }
+
+    // ✅ Filter out invalid wishlist items (where productId is undefined or null)
+    const validWishlistItems = user.wishlist.filter(item => 
+      item && item.productId && item.productId.toString
+    );
+
+    // If all items were invalid, clean up and return empty
+    if (validWishlistItems.length === 0) {
+      user.wishlist = [];
+      await user.save();
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        cleanedUp: true,
+        removedCount: user.wishlist.length,
+        wishlist: []
+      });
+    }
+
+    // Get all product IDs from valid wishlist items
+    const productIds = validWishlistItems.map(item => item.productId.toString());
+    
+    // Find which products actually exist in database
+    const existingProducts = await Product.find({
+      _id: { $in: productIds }
+    }).select('name description displayPrice displayActualPrice maxDiscount variants averageRating mainImages isActive');
+    
+    // Get IDs of existing products
+    const existingProductIds = existingProducts.map(p => p._id.toString());
+    
+    // Find invalid product IDs (in wishlist but not in database)
+    const invalidItems = validWishlistItems.filter(
+      item => !existingProductIds.includes(item.productId.toString())
+    );
+    
+    // Remove invalid products from wishlist
+    let cleanedUp = false;
+    if (invalidItems.length > 0) {
+      // Keep only valid wishlist items
+      user.wishlist = validWishlistItems.filter(
+        item => existingProductIds.includes(item.productId.toString())
+      );
+      await user.save();
+      cleanedUp = true;
+      console.log(`🗑️ Removed ${invalidItems.length} invalid product(s) from wishlist`);
+    }
+    
+    // Create a map for quick product lookup
+    const productMap = {};
+    existingProducts.forEach(product => {
+      productMap[product._id.toString()] = product;
+    });
+    
+    // Transform wishlist items
+    const wishlistItems = user.wishlist.map(item => {
+      const productData = productMap[item.productId.toString()];
+      
+      if (!productData) return null;
+      
+      const firstVariant = productData.variants?.[0];
+      const mainImage = firstVariant?.images?.[0] || productData.mainImages?.[0] || null;
       
       return {
-        _id: productObj._id,
-        name: productObj.name,
-        description: productObj.description,
-        displayPrice: productObj.displayPrice,
-        displayActualPrice: productObj.displayActualPrice,
-        maxDiscount: productObj.maxDiscount,
+        _id: item._id,
+        productId: productData._id,
+        productName: productData.name,
+        productDescription: productData.description,
+        displayPrice: productData.displayPrice,
+        displayActualPrice: productData.displayActualPrice,
+        maxDiscount: productData.maxDiscount,
         mainImage: mainImage,
-        averageRating: productObj.averageRating || 0,
-        variantsCount: productObj.variants?.length || 0
+        averageRating: productData.averageRating || 0,
+        variantsCount: productData.variants?.length || 0,
+        isActive: productData.isActive,
+        addedAt: item.addedAt
       };
-    });
-
+    }).filter(item => item !== null);
+    
     return res.status(200).json({
       success: true,
       count: wishlistItems.length,
+      cleanedUp: cleanedUp,
+      removedCount: invalidItems.length,
       wishlist: wishlistItems
     });
-
+    
   } catch (error) {
     console.error('getWishlist error:', error);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// ==================== CHECK IF PRODUCT IN WISHLIST ====================
-export const checkWishlist = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { productId } = req.query;
-
-    if (!productId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Product ID is required'
-      });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    const isInWishlist = user.wishlist.some(id => id.toString() === productId);
-
-    return res.status(200).json({
-      success: true,
-      isInWishlist
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
     });
-
-  } catch (error) {
-    console.error('checkWishlist error:', error);
-    return res.status(500).json({ success: false, message: error.message });
   }
 };
-
 
 // ==================== CART CONTROLLERS ====================
 
-// Add to cart
+// Add to cart (with productId, variantId, sizeId, quantity)
 export const addToCart = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { productId, variantId, quantity = 1 } = req.body;
+    const { productId, variantId, sizeId, quantity = 1 } = req.body;
 
-    if (!productId || !variantId) {
+    console.log('=== ADD TO CART ===');
+    console.log('userId:', userId);
+    console.log('productId:', productId);
+    console.log('variantId:', variantId);
+    console.log('sizeId:', sizeId);
+    console.log('quantity:', quantity);
+
+    // Validate required fields
+    if (!productId || !variantId || !sizeId) {
       return res.status(400).json({
         success: false,
-        message: 'Product ID and Variant ID are required'
+        message: 'Product ID, Variant ID, and Size ID are required'
       });
     }
 
+    if (quantity < 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'Quantity must be at least 1'
+      });
+    }
+
+    // Get user
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Get product and variant details
+    // Get product and variant
     const product = await Product.findById(productId);
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
@@ -1032,56 +1060,233 @@ export const addToCart = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Variant not found' });
     }
 
+    // Find the specific size
+    const sizeObj = variant.sizes.id(sizeId);
+    if (!sizeObj) {
+      return res.status(404).json({ success: false, message: 'Size not found' });
+    }
+
     // Check stock
-    if (variant.stock < quantity) {
+    if (sizeObj.stock < quantity) {
       return res.status(400).json({
         success: false,
-        message: `Only ${variant.stock} items available in stock`
+        message: `Only ${sizeObj.stock} items available in stock for size ${sizeObj.size}`
       });
     }
 
-    // Check if already in cart
-    const existingItem = user.cart.find(
-      item => item.productId.toString() === productId && item.variantId.toString() === variantId
+    // Get price
+    const price = variant.discountPrice || variant.price;
+    const discountPrice = variant.discountPrice;
+
+    // Check if already in cart (same product, variant, AND size)
+    const existingItemIndex = user.cart.findIndex(
+      item => item.productId.toString() === productId && 
+              item.variantId.toString() === variantId && 
+              item.sizeId.toString() === sizeId
     );
 
-    if (existingItem) {
-      existingItem.quantity += quantity;
-      if (existingItem.quantity > variant.stock) {
+    let isNewItem = false;
+
+    if (existingItemIndex !== -1) {
+      // Update quantity if already exists
+      const newQuantity = user.cart[existingItemIndex].quantity + quantity;
+      if (newQuantity > sizeObj.stock) {
         return res.status(400).json({
           success: false,
-          message: `Cannot add more than ${variant.stock} items`
+          message: `Cannot add more than ${sizeObj.stock} items for size ${sizeObj.size}`
         });
       }
+      user.cart[existingItemIndex].quantity = newQuantity;
     } else {
+      // Add new item to cart
       user.cart.push({
         productId,
         variantId,
+        sizeId,
         variant: {
           color: variant.color,
-          size: variant.size,
-          actualPrice: variant.actualPrice,
-          discountPrice: variant.discountPrice,
-          mainImage: variant.mainImage || variant.images?.[0]
+          size: sizeObj.size,
+          actualPrice: variant.price,
+          discountPrice: discountPrice,
+          mainImage: variant.images?.[0] || product.mainImages?.[0] || ''
         },
         quantity,
-        price: variant.discountPrice || variant.actualPrice
+        price: price,
+        addedAt: new Date()
       });
+      isNewItem = true;
     }
 
     await user.save();
 
-    // Populate cart items
-    await user.populate('cart.productId', 'name description');
+    // Get updated cart with populated product details
+    const updatedUser = await User.findById(userId).populate({
+      path: 'cart.productId',
+      select: 'name description displayPrice displayActualPrice maxDiscount'
+    });
+
+    // Transform cart items
+    const cartItems = updatedUser.cart.map(item => {
+      const productData = item.productId;
+      return {
+        _id: item._id,
+        productId: item.productId._id,
+        productName: productData?.name,
+        productDescription: productData?.description,
+        displayPrice: productData?.displayPrice,
+        variantId: item.variantId,
+        color: item.variant.color,
+        size: item.variant.size,
+        quantity: item.quantity,
+        price: item.price,
+        totalPrice: item.price * item.quantity,
+        mainImage: item.variant.mainImage,
+        addedAt: item.addedAt
+      };
+    });
+
+    // Calculate cart summary
+    const subtotal = cartItems.reduce((sum, item) => sum + item.totalPrice, 0);
+    const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
     return res.status(200).json({
       success: true,
-      message: 'Added to cart',
-      cart: user.cart
+      message: isNewItem ? 'Added to cart' : 'Cart updated',
+      cart: {
+        items: cartItems,
+        summary: {
+          subtotal,
+          totalItems
+        }
+      }
     });
 
   } catch (error) {
     console.error('addToCart error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get cart
+export const getCart = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId).populate({
+      path: 'cart.productId',
+      select: 'name description displayPrice displayActualPrice maxDiscount'
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (!user.cart || user.cart.length === 0) {
+      return res.status(200).json({
+        success: true,
+        cart: {
+          items: [],
+          summary: {
+            subtotal: 0,
+            totalItems: 0
+          }
+        }
+      });
+    }
+
+    // Verify all cart items still exist and have stock
+    let cartUpdated = false;
+    const validCartItems = [];
+
+    for (const item of user.cart) {
+      const product = await Product.findById(item.productId);
+      if (!product) {
+        cartUpdated = true;
+        console.log(`Removing invalid product: ${item.productId}`);
+        continue;
+      }
+
+      const variant = product.variants.id(item.variantId);
+      if (!variant) {
+        cartUpdated = true;
+        console.log(`Removing invalid variant: ${item.variantId}`);
+        continue;
+      }
+
+      const sizeObj = variant.sizes.id(item.sizeId);
+      if (!sizeObj) {
+        cartUpdated = true;
+        console.log(`Removing invalid size: ${item.sizeId}`);
+        continue;
+      }
+
+      // Update price if changed
+      const currentPrice = variant.discountPrice || variant.price;
+      if (currentPrice !== item.price) {
+        item.price = currentPrice;
+        cartUpdated = true;
+      }
+
+      // Update variant info if needed
+      if (item.variant.color !== variant.color || item.variant.size !== sizeObj.size) {
+        item.variant.color = variant.color;
+        item.variant.size = sizeObj.size;
+        item.variant.mainImage = variant.images?.[0] || product.mainImages?.[0] || '';
+        cartUpdated = true;
+      }
+
+      // Check if quantity exceeds stock
+      if (item.quantity > sizeObj.stock) {
+        item.quantity = sizeObj.stock;
+        cartUpdated = true;
+      }
+
+      validCartItems.push(item);
+    }
+
+    if (cartUpdated) {
+      user.cart = validCartItems;
+      await user.save();
+    }
+
+    // Transform cart items
+    const cartItems = validCartItems.map(item => {
+      const productData = item.productId;
+      return {
+        _id: item._id,
+        productId: item.productId._id,
+        productName: productData?.name,
+        productDescription: productData?.description,
+        displayPrice: productData?.displayPrice,
+        displayActualPrice: productData?.displayActualPrice,
+        maxDiscount: productData?.maxDiscount,
+        variantId: item.variantId,
+        color: item.variant.color,
+        size: item.variant.size,
+        quantity: item.quantity,
+        price: item.price,
+        totalPrice: item.price * item.quantity,
+        mainImage: item.variant.mainImage,
+        addedAt: item.addedAt
+      };
+    });
+
+    const subtotal = cartItems.reduce((sum, item) => sum + item.totalPrice, 0);
+    const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+
+    return res.status(200).json({
+      success: true,
+      cart: {
+        items: cartItems,
+        summary: {
+          subtotal,
+          totalItems
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('getCart error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -1092,10 +1297,22 @@ export const updateCartQuantity = async (req, res) => {
     const { userId } = req.params;
     const { cartItemId, quantity } = req.body;
 
-    if (!cartItemId || !quantity || quantity < 1) {
+    console.log('=== UPDATE CART QUANTITY ===');
+    console.log('userId:', userId);
+    console.log('cartItemId:', cartItemId);
+    console.log('quantity:', quantity);
+
+    if (!cartItemId) {
       return res.status(400).json({
         success: false,
-        message: 'Cart item ID and valid quantity are required'
+        message: 'Cart item ID is required'
+      });
+    }
+
+    if (!quantity || quantity < 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'Quantity must be at least 1'
       });
     }
 
@@ -1111,12 +1328,24 @@ export const updateCartQuantity = async (req, res) => {
 
     // Check stock
     const product = await Product.findById(cartItem.productId);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+
     const variant = product.variants.id(cartItem.variantId);
-    
-    if (variant.stock < quantity) {
+    if (!variant) {
+      return res.status(404).json({ success: false, message: 'Variant not found' });
+    }
+
+    const sizeObj = variant.sizes.id(cartItem.sizeId);
+    if (!sizeObj) {
+      return res.status(404).json({ success: false, message: 'Size not found' });
+    }
+
+    if (sizeObj.stock < quantity) {
       return res.status(400).json({
         success: false,
-        message: `Only ${variant.stock} items available`
+        message: `Only ${sizeObj.stock} items available for size ${sizeObj.size}`
       });
     }
 
@@ -1126,7 +1355,15 @@ export const updateCartQuantity = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Cart updated',
-      cart: user.cart
+      cartItem: {
+        _id: cartItem._id,
+        productName: product.name,
+        color: cartItem.variant.color,
+        size: cartItem.variant.size,
+        quantity: cartItem.quantity,
+        price: cartItem.price,
+        totalPrice: cartItem.price * cartItem.quantity
+      }
     });
 
   } catch (error) {
@@ -1135,15 +1372,31 @@ export const updateCartQuantity = async (req, res) => {
   }
 };
 
-// Remove from cart
+// Remove item from cart
 export const removeFromCart = async (req, res) => {
   try {
     const { userId } = req.params;
     const { cartItemId } = req.body;
 
+    console.log('=== REMOVE FROM CART ===');
+    console.log('userId:', userId);
+    console.log('cartItemId:', cartItemId);
+
+    if (!cartItemId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cart item ID is required'
+      });
+    }
+
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const cartItem = user.cart.id(cartItemId);
+    if (!cartItem) {
+      return res.status(404).json({ success: false, message: 'Cart item not found' });
     }
 
     user.cart = user.cart.filter(item => item._id.toString() !== cartItemId);
@@ -1152,7 +1405,7 @@ export const removeFromCart = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Removed from cart',
-      cart: user.cart
+      removedItemId: cartItemId
     });
 
   } catch (error) {
@@ -1161,74 +1414,26 @@ export const removeFromCart = async (req, res) => {
   }
 };
 
-// Get cart
-export const getCart = async (req, res) => {
-  try {
-    const { userId } = req.params;
-
-    const user = await User.findById(userId).populate('cart.productId', 'name description');
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    let subtotal = 0;
-    let totalDiscount = 0;
-
-    const cartItems = user.cart.map(item => {
-      const itemTotal = item.price * item.quantity;
-      subtotal += itemTotal;
-      
-      if (item.variant.actualPrice && item.variant.discountPrice) {
-        totalDiscount += (item.variant.actualPrice - item.variant.discountPrice) * item.quantity;
-      }
-
-      return {
-        _id: item._id,
-        productId: item.productId,
-        variantId: item.variantId,
-        variant: item.variant,
-        quantity: item.quantity,
-        price: item.price,
-        totalPrice: itemTotal
-      };
-    });
-
-    return res.status(200).json({
-      success: true,
-      cart: {
-        items: cartItems,
-        summary: {
-          subtotal,
-          totalDiscount,
-          finalAmount: subtotal
-        },
-        totalItems: user.cart.length
-      }
-    });
-
-  } catch (error) {
-    console.error('getCart error:', error);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// Clear cart
+// Clear entire cart
 export const clearCart = async (req, res) => {
   try {
     const { userId } = req.params;
+
+    console.log('=== CLEAR CART ===');
+    console.log('userId:', userId);
 
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    const itemCount = user.cart.length;
     user.cart = [];
     await user.save();
 
     return res.status(200).json({
       success: true,
-      message: 'Cart cleared',
-      cart: []
+      message: `${itemCount} item(s) cleared from cart`
     });
 
   } catch (error) {
@@ -1237,7 +1442,6 @@ export const clearCart = async (req, res) => {
   }
 };
 
-
 // ==================== ORDER CONTROLLERS ====================
 
 // Generate unique order ID
@@ -1245,7 +1449,6 @@ const generateOrderId = () => {
   return 'ORD' + Date.now() + crypto.randomBytes(4).toString('hex').toUpperCase();
 };
 
-// Create order from cart
 export const createOrder = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1263,60 +1466,53 @@ export const createOrder = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    if (user.cart.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Cart is empty'
-      });
+    if (!user.cart || user.cart.length === 0) {
+      return res.status(400).json({ success: false, message: 'Cart is empty' });
     }
 
-    // Get delivery address
     const deliveryAddress = user.addresses.id(addressId);
     if (!deliveryAddress) {
-      return res.status(404).json({
-        success: false,
-        message: 'Address not found'
-      });
+      return res.status(404).json({ success: false, message: 'Address not found' });
     }
 
     let totalAmount = 0;
-    let discountAmount = 0;
     const orderItems = [];
 
-    // Process each cart item
+    // Process cart items
     for (const cartItem of user.cart) {
+      // ✅ Get product
       const product = await Product.findById(cartItem.productId);
       if (!product) {
-        throw new Error(`Product not found: ${cartItem.productId}`);
+        return res.status(404).json({ success: false, message: 'Product not found' });
       }
 
       const variant = product.variants.id(cartItem.variantId);
       if (!variant) {
-        throw new Error(`Variant not found: ${cartItem.variantId}`);
+        return res.status(404).json({ success: false, message: 'Variant not found' });
       }
 
-      // Check stock
-      if (variant.stock < cartItem.quantity) {
+      const sizeObj = variant.sizes.id(cartItem.sizeId);
+      if (!sizeObj) {
+        return res.status(404).json({ success: false, message: 'Size not found' });
+      }
+
+      if (sizeObj.stock < cartItem.quantity) {
         return res.status(400).json({
           success: false,
-          message: `${product.name} - ${variant.color} ${variant.size} has only ${variant.stock} items in stock`
+          message: `${product.name} - ${variant.color} ${sizeObj.size} only ${sizeObj.stock} left`
         });
       }
 
       // Reduce stock
-      variant.stock -= cartItem.quantity;
+      sizeObj.stock -= cartItem.quantity;
+      await product.save();
 
-      const itemPrice = cartItem.price;
-      const itemTotal = itemPrice * cartItem.quantity;
-      totalAmount += itemTotal;
-      
-      if (variant.actualPrice && variant.discountPrice) {
-        discountAmount += (variant.actualPrice - variant.discountPrice) * cartItem.quantity;
-      }
+      totalAmount += cartItem.price * cartItem.quantity;
 
       orderItems.push({
         productId: cartItem.productId,
         variantId: cartItem.variantId,
+        sizeId: cartItem.sizeId,
         variant: cartItem.variant,
         quantity: cartItem.quantity,
         price: cartItem.price,
@@ -1324,36 +1520,32 @@ export const createOrder = async (req, res) => {
       });
     }
 
-    await product.save();
-
-    const finalAmount = totalAmount;
-
-    const order = {
+    const newOrder = {
       orderId: generateOrderId(),
       items: orderItems,
       totalAmount,
-      discountAmount,
-      finalAmount,
+      discountAmount: 0,
+      finalAmount: totalAmount,
       deliveryAddress: deliveryAddress.toObject(),
       paymentMethod,
-      paymentStatus: paymentMethod === 'cod' ? 'pending' : 'pending',
+      paymentStatus: 'pending',
       orderStatus: 'pending',
       createdAt: new Date()
     };
 
-    user.orders.push(order);
-    user.cart = []; // Clear cart
+    user.orders.push(newOrder);
+    user.cart = [];
     await user.save();
 
     return res.status(201).json({
       success: true,
       message: 'Order created successfully',
       order: {
-        orderId: order.orderId,
-        finalAmount: order.finalAmount,
-        paymentMethod: order.paymentMethod,
-        orderStatus: order.orderStatus,
-        items: order.items.length
+        orderId: newOrder.orderId,
+        finalAmount: newOrder.finalAmount,
+        paymentMethod: newOrder.paymentMethod,
+        orderStatus: newOrder.orderStatus,
+        itemsCount: newOrder.items.length
       }
     });
 

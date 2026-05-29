@@ -2099,7 +2099,7 @@ export const reorderVariantImages = async (req, res) => {
 
 // ==================== ADMIN ORDER MANAGEMENT ====================
 
-// Get all orders (Admin)
+// Get all orders (Admin) - Without separate Order model
 export const getAllOrders = async (req, res) => {
   try {
     const {
@@ -2107,131 +2107,88 @@ export const getAllOrders = async (req, res) => {
       limit = 20,
       status,
       paymentMethod,
-      paymentStatus,
       startDate,
       endDate,
-      search,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
+      search
     } = req.query;
 
     console.log('=== GET ALL ORDERS ===');
-    console.log('Filters:', { page, limit, status, paymentMethod, paymentStatus, startDate, endDate, search });
 
-    // Build query
-    let query = {};
+    // Get all users with their orders
+    let users = await User.find({ 'orders.0': { $exists: true } })
+      .select('name email mobile orders')
+      .lean();
 
-    // Filter by order status
+    // Flatten orders from all users
+    let allOrders = [];
+    users.forEach(user => {
+      user.orders.forEach(order => {
+        allOrders.push({
+          ...order,
+          userId: user._id,
+          userName: user.name,
+          userEmail: user.email,
+          userMobile: user.mobile
+        });
+      });
+    });
+
+    // Apply filters
     if (status && status !== 'all') {
-      query.orderStatus = status;
+      allOrders = allOrders.filter(order => order.orderStatus === status);
     }
 
-    // Filter by payment method
     if (paymentMethod && paymentMethod !== 'all') {
-      query.paymentMethod = paymentMethod;
+      allOrders = allOrders.filter(order => order.paymentMethod === paymentMethod);
     }
 
-    // Filter by payment status
-    if (paymentStatus && paymentStatus !== 'all') {
-      query.paymentStatus = paymentStatus;
+    if (startDate) {
+      const start = new Date(startDate);
+      allOrders = allOrders.filter(order => new Date(order.createdAt) >= start);
     }
 
-    // Filter by date range
-    if (startDate || endDate) {
-      query.createdAt = {};
-      if (startDate) query.createdAt.$gte = new Date(startDate);
-      if (endDate) query.createdAt.$lte = new Date(endDate);
+    if (endDate) {
+      const end = new Date(endDate);
+      allOrders = allOrders.filter(order => new Date(order.createdAt) <= end);
     }
 
-    // Search by order ID or user details (need to search users first)
-    let userIds = [];
     if (search) {
-      // Search by order ID
-      if (search.startsWith('ORD')) {
-        query.orderId = { $regex: search, $options: 'i' };
-      } else {
-        // Search by user name or mobile
-        const users = await User.find({
-          $or: [
-            { name: { $regex: search, $options: 'i' } },
-            { mobile: { $regex: search, $options: 'i' } },
-            { email: { $regex: search, $options: 'i' } }
-          ]
-        }).select('_id');
-        
-        userIds = users.map(u => u._id);
-        if (userIds.length > 0) {
-          query.userId = { $in: userIds };
-        } else {
-          // If no users found, return empty result
-          return res.status(200).json({
-            success: true,
-            count: 0,
-            total: 0,
-            page: parseInt(page),
-            pages: 0,
-            orders: []
-          });
-        }
-      }
+      allOrders = allOrders.filter(order => 
+        order.orderId.includes(search) || 
+        order.userName?.toLowerCase().includes(search.toLowerCase())
+      );
     }
+
+    // Sort by latest first
+    allOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    // Calculate stats
+    const stats = {
+      totalOrders: allOrders.length,
+      totalRevenue: allOrders.reduce((sum, o) => sum + (o.finalAmount || 0), 0),
+      pendingOrders: allOrders.filter(o => o.orderStatus === 'pending').length,
+      confirmedOrders: allOrders.filter(o => o.orderStatus === 'confirmed').length,
+      processingOrders: allOrders.filter(o => o.orderStatus === 'processing').length,
+      shippedOrders: allOrders.filter(o => o.orderStatus === 'shipped').length,
+      deliveredOrders: allOrders.filter(o => o.orderStatus === 'delivered').length,
+      cancelledOrders: allOrders.filter(o => o.orderStatus === 'cancelled').length,
+      codOrders: allOrders.filter(o => o.paymentMethod === 'cod').length,
+      prepaidOrders: allOrders.filter(o => o.paymentMethod !== 'cod').length
+    };
 
     // Pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    // Sorting
-    let sort = {};
-    sort[sortBy] = sortOrder === 'desc' ? -1 : 1;
-
-    // Get orders from database
-    const orders = await Order.find(query)
-      .sort(sort)
-      .skip(skip)
-      .limit(parseInt(limit))
-      .populate('userId', 'name email mobile');
-
-    const total = await Order.countDocuments(query);
-
-    // Get order statistics
-    const stats = await Order.aggregate([
-      {
-        $group: {
-          _id: null,
-          totalOrders: { $sum: 1 },
-          totalRevenue: { $sum: '$finalAmount' },
-          averageOrderValue: { $avg: '$finalAmount' },
-          pendingOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'pending'] }, 1, 0] } },
-          confirmedOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'confirmed'] }, 1, 0] } },
-          processingOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'processing'] }, 1, 0] } },
-          shippedOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'shipped'] }, 1, 0] } },
-          deliveredOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'delivered'] }, 1, 0] } },
-          cancelledOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'cancelled'] }, 1, 0] } },
-          codOrders: { $sum: { $cond: [{ $eq: ['$paymentMethod', 'cod'] }, 1, 0] } },
-          prepaidOrders: { $sum: { $cond: [{ $ne: ['$paymentMethod', 'cod'] }, 1, 0] } }
-        }
-      }
-    ]);
+    const total = allOrders.length;
+    const startIndex = (parseInt(page) - 1) * parseInt(limit);
+    const paginatedOrders = allOrders.slice(startIndex, startIndex + parseInt(limit));
 
     return res.status(200).json({
       success: true,
-      count: orders.length,
+      count: paginatedOrders.length,
       total,
       page: parseInt(page),
       pages: Math.ceil(total / parseInt(limit)),
-      stats: stats[0] || {
-        totalOrders: 0,
-        totalRevenue: 0,
-        averageOrderValue: 0,
-        pendingOrders: 0,
-        confirmedOrders: 0,
-        processingOrders: 0,
-        shippedOrders: 0,
-        deliveredOrders: 0,
-        cancelledOrders: 0,
-        codOrders: 0,
-        prepaidOrders: 0
-      },
-      orders
+      stats,
+      orders: paginatedOrders
     });
 
   } catch (error) {
@@ -2240,15 +2197,97 @@ export const getAllOrders = async (req, res) => {
   }
 };
 
-// Get single order by ID (Admin)
+// Update order status (Admin)
+export const updateOrderStatus = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { orderStatus, paymentStatus, trackingId, estimatedDelivery } = req.body;
+
+    console.log('=== UPDATE ORDER STATUS ===');
+    console.log('orderId:', orderId);
+    console.log('orderStatus:', orderStatus);
+
+    // Find user who has this order
+    const user = await User.findOne({ 'orders.orderId': orderId });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Find the order
+    const order = user.orders.find(o => o.orderId === orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+    if (orderStatus && !validStatuses.includes(orderStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid order status. Must be: ${validStatuses.join(', ')}`
+      });
+    }
+
+    // Update order fields
+    if (orderStatus) order.orderStatus = orderStatus;
+    if (paymentStatus) order.paymentStatus = paymentStatus;
+    if (trackingId) order.trackingId = trackingId;
+    if (estimatedDelivery) order.estimatedDelivery = new Date(estimatedDelivery);
+    
+    if (orderStatus === 'delivered') {
+      order.deliveredAt = new Date();
+    }
+    
+    if (orderStatus === 'cancelled') {
+      order.cancelledAt = new Date();
+    }
+
+    order.updatedAt = new Date();
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Order status updated to ${order.orderStatus}`,
+      order: {
+        _id: order._id,
+        orderId: order.orderId,
+        orderStatus: order.orderStatus,
+        paymentStatus: order.paymentStatus,
+        trackingId: order.trackingId,
+        updatedAt: order.updatedAt
+      }
+    });
+
+  } catch (error) {
+    console.error('updateOrderStatus error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Controller/adminController.js
+
+// Get single order by ID (Admin) - From embedded user orders
 export const getOrderByIdAdmin = async (req, res) => {
   try {
     const { orderId } = req.params;
 
-    const order = await Order.findById(orderId).populate('userId', 'name email mobile');
+    // Find user who has this order
+    const user = await User.findOne({ 'orders.orderId': orderId });
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Order not found' 
+      });
+    }
+
+    // Find the order
+    const order = user.orders.find(o => o.orderId === orderId);
     
     if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Order not found' 
+      });
     }
 
     // Get product details for each item
@@ -2262,181 +2301,210 @@ export const getOrderByIdAdmin = async (req, res) => {
       };
     }));
 
-    const orderWithDetails = {
-      ...order.toObject(),
-      items: itemsWithDetails
-    };
-
     return res.status(200).json({
       success: true,
-      order: orderWithDetails
+      order: {
+        _id: order._id,
+        orderId: order.orderId,
+        userId: user._id,
+        userName: user.name,
+        userEmail: user.email,
+        userMobile: user.mobile,
+        items: itemsWithDetails,
+        totalAmount: order.totalAmount,
+        discountAmount: order.discountAmount,
+        finalAmount: order.finalAmount,
+        deliveryAddress: order.deliveryAddress,
+        paymentMethod: order.paymentMethod,
+        paymentStatus: order.paymentStatus,
+        orderStatus: order.orderStatus,
+        trackingId: order.trackingId,
+        estimatedDelivery: order.estimatedDelivery,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+        deliveredAt: order.deliveredAt,
+        cancelledAt: order.cancelledAt,
+        cancellationReason: order.cancellationReason
+      }
     });
 
   } catch (error) {
     console.error('getOrderByIdAdmin error:', error);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// Update order status (Admin)
-export const updateOrderStatus = async (req, res) => {
-  try {
-    const { orderId } = req.params;
-    const { orderStatus, paymentStatus, trackingId, estimatedDelivery, adminNotes } = req.body;
-
-    console.log('=== UPDATE ORDER STATUS ===');
-    console.log('orderId:', orderId);
-    console.log('orderStatus:', orderStatus);
-    console.log('paymentStatus:', paymentStatus);
-
-    const order = await Order.findById(orderId);
-    if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
-    }
-
-    const oldStatus = order.orderStatus;
-    const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
-    
-    if (orderStatus && !validStatuses.includes(orderStatus)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid order status. Must be one of: ${validStatuses.join(', ')}`
-      });
-    }
-
-    // Update fields
-    if (orderStatus) order.orderStatus = orderStatus;
-    if (paymentStatus) order.paymentStatus = paymentStatus;
-    if (trackingId) order.trackingId = trackingId;
-    if (estimatedDelivery) order.estimatedDelivery = new Date(estimatedDelivery);
-    if (adminNotes) order.adminNotes = adminNotes;
-    
-    // Set delivered date
-    if (orderStatus === 'delivered' && oldStatus !== 'delivered') {
-      order.deliveredAt = new Date();
-    }
-    
-    // Set cancelled date
-    if (orderStatus === 'cancelled' && oldStatus !== 'cancelled') {
-      order.cancelledAt = new Date();
-    }
-
-    order.updatedAt = new Date();
-    await order.save();
-
-    // Add notification for user
-    const user = await User.findById(order.userId);
-    if (user) {
-      user.notifications.push({
-        message: `Your order ${order.orderId} status has been updated to ${orderStatus}`,
-        type: 'info',
-        createdAt: new Date()
-      });
-      await user.save();
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: `Order status updated from ${oldStatus} to ${order.orderStatus}`,
-      order: {
-        _id: order._id,
-        orderId: order.orderId,
-        orderStatus: order.orderStatus,
-        paymentStatus: order.paymentStatus,
-        trackingId: order.trackingId,
-        estimatedDelivery: order.estimatedDelivery,
-        updatedAt: order.updatedAt
-      }
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
     });
-
-  } catch (error) {
-    console.error('updateOrderStatus error:', error);
-    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// Get order statistics (Admin Dashboard)
+// // Update order status (Admin)
+// export const updateOrderStatus = async (req, res) => {
+//   try {
+//     const { orderId } = req.params;
+//     const { orderStatus, paymentStatus, trackingId, estimatedDelivery, adminNotes } = req.body;
+
+//     console.log('=== UPDATE ORDER STATUS ===');
+//     console.log('orderId:', orderId);
+//     console.log('orderStatus:', orderStatus);
+//     console.log('paymentStatus:', paymentStatus);
+
+//     const order = await Order.findById(orderId);
+//     if (!order) {
+//       return res.status(404).json({ success: false, message: 'Order not found' });
+//     }
+
+//     const oldStatus = order.orderStatus;
+//     const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+    
+//     if (orderStatus && !validStatuses.includes(orderStatus)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: `Invalid order status. Must be one of: ${validStatuses.join(', ')}`
+//       });
+//     }
+
+//     // Update fields
+//     if (orderStatus) order.orderStatus = orderStatus;
+//     if (paymentStatus) order.paymentStatus = paymentStatus;
+//     if (trackingId) order.trackingId = trackingId;
+//     if (estimatedDelivery) order.estimatedDelivery = new Date(estimatedDelivery);
+//     if (adminNotes) order.adminNotes = adminNotes;
+    
+//     // Set delivered date
+//     if (orderStatus === 'delivered' && oldStatus !== 'delivered') {
+//       order.deliveredAt = new Date();
+//     }
+    
+//     // Set cancelled date
+//     if (orderStatus === 'cancelled' && oldStatus !== 'cancelled') {
+//       order.cancelledAt = new Date();
+//     }
+
+//     order.updatedAt = new Date();
+//     await order.save();
+
+//     // Add notification for user
+//     const user = await User.findById(order.userId);
+//     if (user) {
+//       user.notifications.push({
+//         message: `Your order ${order.orderId} status has been updated to ${orderStatus}`,
+//         type: 'info',
+//         createdAt: new Date()
+//       });
+//       await user.save();
+//     }
+
+//     return res.status(200).json({
+//       success: true,
+//       message: `Order status updated from ${oldStatus} to ${order.orderStatus}`,
+//       order: {
+//         _id: order._id,
+//         orderId: order.orderId,
+//         orderStatus: order.orderStatus,
+//         paymentStatus: order.paymentStatus,
+//         trackingId: order.trackingId,
+//         estimatedDelivery: order.estimatedDelivery,
+//         updatedAt: order.updatedAt
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error('updateOrderStatus error:', error);
+//     return res.status(500).json({ success: false, message: error.message });
+//   }
+// };
+
+// Get order statistics from embedded user orders (No separate Order model)
 export const getOrderStatistics = async (req, res) => {
   try {
-    const { period = 'month' } = req.query; // day, week, month, year
-
-    let dateFilter = {};
-    const now = new Date();
+    const { period = 'month' } = req.query;
     
+    // Get all users with orders
+    const users = await User.find({ 'orders.0': { $exists: true } })
+      .select('orders');
+
+    // Flatten all orders from all users
+    let allOrders = [];
+    users.forEach(user => {
+      user.orders.forEach(order => {
+        allOrders.push(order);
+      });
+    });
+
+    // Filter by period
+    const now = new Date();
+    let filteredOrders = [...allOrders];
+
     if (period === 'day') {
-      dateFilter = {
-        createdAt: {
-          $gte: new Date(now.setHours(0, 0, 0, 0)),
-          $lte: new Date(now.setHours(23, 59, 59, 999))
-        }
-      };
+      const startOfDay = new Date(now.setHours(0, 0, 0, 0));
+      const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+      filteredOrders = allOrders.filter(order => 
+        order.createdAt >= startOfDay && order.createdAt <= endOfDay
+      );
     } else if (period === 'week') {
       const startOfWeek = new Date(now);
       startOfWeek.setDate(now.getDate() - now.getDay());
       startOfWeek.setHours(0, 0, 0, 0);
-      dateFilter = {
-        createdAt: { $gte: startOfWeek }
-      };
+      filteredOrders = allOrders.filter(order => order.createdAt >= startOfWeek);
     } else if (period === 'month') {
-      dateFilter = {
-        createdAt: {
-          $gte: new Date(now.getFullYear(), now.getMonth(), 1),
-          $lte: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
-        }
-      };
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      filteredOrders = allOrders.filter(order => 
+        order.createdAt >= startOfMonth && order.createdAt <= endOfMonth
+      );
     } else if (period === 'year') {
-      dateFilter = {
-        createdAt: {
-          $gte: new Date(now.getFullYear(), 0, 1),
-          $lte: new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999)
-        }
-      };
+      const startOfYear = new Date(now.getFullYear(), 0, 1);
+      const endOfYear = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      filteredOrders = allOrders.filter(order => 
+        order.createdAt >= startOfYear && order.createdAt <= endOfYear
+      );
     }
 
-    const stats = await Order.aggregate([
-      { $match: dateFilter },
-      {
-        $group: {
-          _id: null,
-          totalOrders: { $sum: 1 },
-          totalRevenue: { $sum: '$finalAmount' },
-          averageOrderValue: { $avg: '$finalAmount' },
-          pendingOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'pending'] }, 1, 0] } },
-          confirmedOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'confirmed'] }, 1, 0] } },
-          processingOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'processing'] }, 1, 0] } },
-          shippedOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'shipped'] }, 1, 0] } },
-          deliveredOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'delivered'] }, 1, 0] } },
-          cancelledOrders: { $sum: { $cond: [{ $eq: ['$orderStatus', 'cancelled'] }, 1, 0] } }
-        }
-      }
-    ]);
+    // Calculate statistics
+    const totalOrders = filteredOrders.length;
+    const totalRevenue = filteredOrders.reduce((sum, order) => sum + (order.finalAmount || 0), 0);
+    const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
-    // Get daily sales for chart
-    const dailySales = await Order.aggregate([
-      { $match: dateFilter },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-          orders: { $sum: 1 },
-          revenue: { $sum: '$finalAmount' }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]);
+    const pendingOrders = filteredOrders.filter(o => o.orderStatus === 'pending').length;
+    const confirmedOrders = filteredOrders.filter(o => o.orderStatus === 'confirmed').length;
+    const processingOrders = filteredOrders.filter(o => o.orderStatus === 'processing').length;
+    const shippedOrders = filteredOrders.filter(o => o.orderStatus === 'shipped').length;
+    const deliveredOrders = filteredOrders.filter(o => o.orderStatus === 'delivered').length;
+    const cancelledOrders = filteredOrders.filter(o => o.orderStatus === 'cancelled').length;
+
+    // Group by date for daily sales chart
+    const dailySalesMap = new Map();
+    filteredOrders.forEach(order => {
+      const dateKey = order.createdAt.toISOString().split('T')[0];
+      if (!dailySalesMap.has(dateKey)) {
+        dailySalesMap.set(dateKey, { orders: 0, revenue: 0 });
+      }
+      const existing = dailySalesMap.get(dateKey);
+      existing.orders += 1;
+      existing.revenue += order.finalAmount || 0;
+    });
+
+    const dailySales = Array.from(dailySalesMap.entries())
+      .map(([date, data]) => ({
+        _id: date,
+        orders: data.orders,
+        revenue: data.revenue
+      }))
+      .sort((a, b) => a._id.localeCompare(b._id));
 
     return res.status(200).json({
       success: true,
       period,
-      stats: stats[0] || {
-        totalOrders: 0,
-        totalRevenue: 0,
-        averageOrderValue: 0,
-        pendingOrders: 0,
-        confirmedOrders: 0,
-        processingOrders: 0,
-        shippedOrders: 0,
-        deliveredOrders: 0,
-        cancelledOrders: 0
+      stats: {
+        totalOrders,
+        totalRevenue,
+        averageOrderValue,
+        pendingOrders,
+        confirmedOrders,
+        processingOrders,
+        shippedOrders,
+        deliveredOrders,
+        cancelledOrders
       },
       dailySales
     });
@@ -2447,63 +2515,110 @@ export const getOrderStatistics = async (req, res) => {
   }
 };
 
-// Get user orders with status (User)
+// Get user orders with status (User) - From embedded user orders
 export const getUserOrdersWithStatus = async (req, res) => {
   try {
     const { userId } = req.params;
     const { status, page = 1, limit = 10 } = req.query;
 
-    let query = { userId };
-    
-    if (status && status !== 'all') {
-      query.orderStatus = status;
+    console.log('=== GET USER ORDERS WITH STATUS ===');
+    console.log('userId:', userId);
+    console.log('status:', status);
+    console.log('page:', page);
+    console.log('limit:', limit);
+
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
     }
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    // Get all orders from user
+    let orders = [...user.orders];
 
-    const orders = await Order.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
+    // Filter by status if provided
+    if (status && status !== 'all') {
+      orders = orders.filter(order => order.orderStatus === status);
+    }
 
-    const total = await Order.countDocuments(query);
+    // Sort by latest first
+    orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-    // Get order status counts for user
-    const statusCounts = await Order.aggregate([
-      { $match: { userId: order.userId } },
-      {
-        $group: {
-          _id: '$orderStatus',
-          count: { $sum: 1 }
-        }
-      }
-    ]);
-
-    const statusMap = {
-      pending: 0,
-      confirmed: 0,
-      processing: 0,
-      shipped: 0,
-      delivered: 0,
-      cancelled: 0
+    // Calculate status counts
+    const statusCounts = {
+      pending: user.orders.filter(o => o.orderStatus === 'pending').length,
+      confirmed: user.orders.filter(o => o.orderStatus === 'confirmed').length,
+      processing: user.orders.filter(o => o.orderStatus === 'processing').length,
+      shipped: user.orders.filter(o => o.orderStatus === 'shipped').length,
+      delivered: user.orders.filter(o => o.orderStatus === 'delivered').length,
+      cancelled: user.orders.filter(o => o.orderStatus === 'cancelled').length
     };
-    
-    statusCounts.forEach(item => {
-      statusMap[item._id] = item.count;
-    });
+
+    // Pagination
+    const total = orders.length;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const paginatedOrders = orders.slice(skip, skip + parseInt(limit));
+
+    // Populate product details for each order item
+    const ordersWithDetails = await Promise.all(paginatedOrders.map(async (order) => {
+      const itemsWithDetails = await Promise.all(order.items.map(async (item) => {
+        const product = await Product.findById(item.productId).select('name description images');
+        return {
+          _id: item._id,
+          productId: item.productId,
+          productName: product?.name,
+          productDescription: product?.description,
+          productImage: product?.images?.[0] || null,
+          variantId: item.variantId,
+          sizeId: item.sizeId,
+          color: item.variant?.color,
+          size: item.variant?.size,
+          quantity: item.quantity,
+          price: item.price,
+          totalPrice: item.price * item.quantity,
+          status: item.status
+        };
+      }));
+
+      return {
+        _id: order._id,
+        orderId: order.orderId,
+        items: itemsWithDetails,
+        totalAmount: order.totalAmount,
+        discountAmount: order.discountAmount,
+        finalAmount: order.finalAmount,
+        deliveryAddress: order.deliveryAddress,
+        paymentMethod: order.paymentMethod,
+        paymentStatus: order.paymentStatus,
+        orderStatus: order.orderStatus,
+        trackingId: order.trackingId,
+        estimatedDelivery: order.estimatedDelivery,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+        deliveredAt: order.deliveredAt,
+        cancelledAt: order.cancelledAt,
+        cancellationReason: order.cancellationReason
+      };
+    }));
 
     return res.status(200).json({
       success: true,
-      count: orders.length,
+      count: paginatedOrders.length,
       total,
       page: parseInt(page),
       pages: Math.ceil(total / parseInt(limit)),
-      statusCounts: statusMap,
-      orders
+      statusCounts,
+      orders: ordersWithDetails
     });
 
   } catch (error) {
     console.error('getUserOrdersWithStatus error:', error);
-    return res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
   }
 };

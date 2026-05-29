@@ -1,4 +1,5 @@
 import User from '../Models/User.js';
+import Order from '../Models/Order.js';
 import Product from '../Models/Product.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -310,11 +311,38 @@ export const getUserById = async (req, res) => {
   try {
     const { userId } = req.params;
     
+    // Get user (works without indexes)
     const user = await User.findById(userId).select('-otp -otpExpires -authToken -authTokenExpires -deleteToken -deleteTokenExpiration');
     
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
+    
+    // ✅ Get orders from separate Order collection (works without indexes)
+    const orders = await Order.find({ userId })
+      .sort({ createdAt: -1 })
+      .limit(10);
+    
+    // Get order counts by status (works without indexes)
+    const orderCounts = await Order.aggregate([
+      { $match: { userId } },
+      { $group: { _id: '$orderStatus', count: { $sum: 1 } } }
+    ]);
+    
+    const orderStatusCounts = {
+      pending: 0,
+      confirmed: 0,
+      processing: 0,
+      shipped: 0,
+      delivered: 0,
+      cancelled: 0
+    };
+    
+    orderCounts.forEach(item => {
+      if (item && item._id) {
+        orderStatusCounts[item._id] = item.count;
+      }
+    });
     
     // Convert user to object and add full image URL
     const userObj = user.toObject();
@@ -325,16 +353,23 @@ export const getUserById = async (req, res) => {
       userObj.profileImageUrl = null;
     }
     
+    // Add orders to response
+    userObj.orders = orders;
+    userObj.orderStats = {
+      totalOrders: orders.length,
+      statusCounts: orderStatusCounts
+    };
+    
     return res.status(200).json({
       success: true,
       user: userObj
     });
+    
   } catch (error) {
     console.error('getUserById error:', error);
-    return res.status(500).json({ success: false, message: 'Internal server error' });
+    return res.status(500).json({ success: false, message: error.message || 'Internal server error' });
   }
 };
-
 /**
  * Update user profile
  * PUT /api/profile/update/:userId
@@ -1442,13 +1477,18 @@ export const clearCart = async (req, res) => {
   }
 };
 
-// ==================== ORDER CONTROLLERS ====================
+
+
 
 // Generate unique order ID
 const generateOrderId = () => {
-  return 'ORD' + Date.now() + crypto.randomBytes(4).toString('hex').toUpperCase();
+  const timestamp = Date.now().toString().slice(-8);
+  const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  return `ORD${timestamp}${random}`;
 };
 
+
+// Create order from cart
 export const createOrder = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1480,20 +1520,19 @@ export const createOrder = async (req, res) => {
 
     // Process cart items
     for (const cartItem of user.cart) {
-      // ✅ Get product
       const product = await Product.findById(cartItem.productId);
       if (!product) {
-        return res.status(404).json({ success: false, message: 'Product not found' });
+        return res.status(404).json({ success: false, message: `Product not found` });
       }
 
       const variant = product.variants.id(cartItem.variantId);
       if (!variant) {
-        return res.status(404).json({ success: false, message: 'Variant not found' });
+        return res.status(404).json({ success: false, message: `Variant not found` });
       }
 
       const sizeObj = variant.sizes.id(cartItem.sizeId);
       if (!sizeObj) {
-        return res.status(404).json({ success: false, message: 'Size not found' });
+        return res.status(404).json({ success: false, message: `Size not found` });
       }
 
       if (sizeObj.stock < cartItem.quantity) {
@@ -1520,20 +1559,25 @@ export const createOrder = async (req, res) => {
       });
     }
 
-    const newOrder = {
+    // ✅ Save to separate Order collection
+    const newOrder = new Order({
       orderId: generateOrderId(),
+      userId,
       items: orderItems,
+      subtotal: totalAmount,
+      deliveryCharge: 0,
+      platformFee: 0,
       totalAmount,
-      discountAmount: 0,
       finalAmount: totalAmount,
       deliveryAddress: deliveryAddress.toObject(),
       paymentMethod,
-      paymentStatus: 'pending',
-      orderStatus: 'pending',
-      createdAt: new Date()
-    };
+      paymentStatus: paymentMethod === 'cod' ? 'pending' : 'pending',
+      orderStatus: 'pending'
+    });
 
-    user.orders.push(newOrder);
+    await newOrder.save();
+
+    // Clear cart
     user.cart = [];
     await user.save();
 
@@ -1541,6 +1585,7 @@ export const createOrder = async (req, res) => {
       success: true,
       message: 'Order created successfully',
       order: {
+        _id: newOrder._id,
         orderId: newOrder.orderId,
         finalAmount: newOrder.finalAmount,
         paymentMethod: newOrder.paymentMethod,
@@ -1566,44 +1611,40 @@ export const getUserOrders = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    let orders = [...user.orders];
-    
-    // Filter by status if provided
-    if (status) {
-      orders = orders.filter(order => order.orderStatus === status);
+    let query = { userId };
+    if (status && status !== 'all') {
+      query.orderStatus = status;
     }
 
-    // Sort by latest first
-    orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    // Pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const paginatedOrders = orders.slice(skip, skip + parseInt(limit));
 
-    // Populate product details for each order
-    const ordersWithDetails = await Promise.all(paginatedOrders.map(async (order) => {
-      const itemsWithDetails = await Promise.all(order.items.map(async (item) => {
-        const product = await Product.findById(item.productId).select('name description');
-        return {
-          ...item.toObject(),
-          productName: product?.name,
-          productDescription: product?.description
-        };
-      }));
-      
-      return {
-        ...order.toObject(),
-        items: itemsWithDetails
-      };
-    }));
+    const orders = await Order.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Order.countDocuments(query);
+
+    // Get order status counts
+    const statusCounts = await Order.aggregate([
+      { $match: { userId } },
+      { $group: { _id: '$orderStatus', count: { $sum: 1 } } }
+    ]);
+
+    const statusMap = {
+      pending: 0, confirmed: 0, processing: 0,
+      shipped: 0, delivered: 0, cancelled: 0
+    };
+    statusCounts.forEach(item => { statusMap[item._id] = item.count; });
 
     return res.status(200).json({
       success: true,
-      count: ordersWithDetails.length,
-      total: orders.length,
+      count: orders.length,
+      total,
       page: parseInt(page),
-      pages: Math.ceil(orders.length / parseInt(limit)),
-      orders: ordersWithDetails
+      pages: Math.ceil(total / parseInt(limit)),
+      statusCounts: statusMap,
+      orders
     });
 
   } catch (error) {
@@ -1622,29 +1663,14 @@ export const getOrderById = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    const order = user.orders.find(o => o.orderId === orderId);
+    const order = await Order.findOne({ userId, orderId });
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    // Populate product details
-    const itemsWithDetails = await Promise.all(order.items.map(async (item) => {
-      const product = await Product.findById(item.productId).select('name description');
-      return {
-        ...item.toObject(),
-        productName: product?.name,
-        productDescription: product?.description
-      };
-    }));
-
-    const orderWithDetails = {
-      ...order.toObject(),
-      items: itemsWithDetails
-    };
-
     return res.status(200).json({
       success: true,
-      order: orderWithDetails
+      order
     });
 
   } catch (error) {
@@ -1664,7 +1690,7 @@ export const cancelOrder = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    const order = user.orders.find(o => o.orderId === orderId);
+    const order = await Order.findOne({ userId, orderId });
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
@@ -1682,8 +1708,11 @@ export const cancelOrder = async (req, res) => {
       if (product) {
         const variant = product.variants.id(item.variantId);
         if (variant) {
-          variant.stock += item.quantity;
-          await product.save();
+          const sizeObj = variant.sizes.id(item.sizeId);
+          if (sizeObj) {
+            sizeObj.stock += item.quantity;
+            await product.save();
+          }
         }
       }
     }
@@ -1691,9 +1720,7 @@ export const cancelOrder = async (req, res) => {
     order.orderStatus = 'cancelled';
     order.cancelledAt = new Date();
     order.cancellationReason = reason || 'Cancelled by user';
-    order.updatedAt = new Date();
-
-    await user.save();
+    await order.save();
 
     return res.status(200).json({
       success: true,

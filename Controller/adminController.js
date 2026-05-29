@@ -1713,6 +1713,8 @@ export const getProductsBySubcategory = async (req, res) => {
       const mainImage = productObj.mainImages?.[0] || 
                         productObj.variants?.[0]?.images?.[0] || 
                         null;
+
+      const variants = productObj.variants || [];                  
       
       const prices = productObj.variants?.map(v => v.discountPrice || v.price) || [];
       const priceRange = {
@@ -1729,6 +1731,7 @@ export const getProductsBySubcategory = async (req, res) => {
         maxDiscount: productObj.maxDiscount,
         mainImage: mainImage,
         priceRange: priceRange,
+        variants: variants,
         availableColors: productObj.availableColors || [],
         availableSizes: productObj.availableSizes || [],
         totalStock: productObj.totalStock || 0,

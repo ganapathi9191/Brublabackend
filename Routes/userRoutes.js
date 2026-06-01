@@ -100,9 +100,9 @@ router.put('/order/:userId/:orderId/cancel', cancelOrder);
 router.get('/login-screen/media', getLoginScreenMedia);
 
 // Home page routes
-router.get('/home-page/hero-sections', getUserHeroSections);
-router.get('/home-page/banner-sections', getUserBannerSections);
-router.get('/home-page', getHomePage); // New route to get entire home page data in one call
+router.get('/home-page/hero', getUserHeroSections);
+router.get('/home-page/banner', getUserBannerSections);
+router.get('/home-page', getHomePage); 
   
 
 // Address routes (no authentication)

@@ -1,10 +1,12 @@
 import User from '../Models/User.js';
 import Order from '../Models/Order.js';
+import LoginScreenMedia from '../Models/LoginScreenMedia.js';
 import Product from '../Models/Product.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+
 
 const FIXED_OTP = '1234'; // Fixed OTP for all verification
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key';
@@ -1734,6 +1736,146 @@ export const cancelOrder = async (req, res) => {
 
   } catch (error) {
     console.error('cancelOrder error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+/**
+ * Get active login screen media
+ * GET /api/login-screen/media
+ */
+export const getLoginScreenMedia = async (req, res) => {
+  try {
+    const media = await LoginScreenMedia.findOne().sort({ createdAt: -1 });
+
+    if (!media) {
+      return res.status(200).json({
+        success: true,
+        data: null,
+        message: 'No login screen media configured'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        type: media.type,
+        url: media.url,
+        filename: media.filename
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== HOMEPAGE CONTROLLERS ====================
+
+/**
+ * Get active hero sections for users
+ * GET /api/homepage/hero
+ */
+export const getUserHeroSections = async (req, res) => {
+  try {
+    const homePage = await HomePage.findOne();
+    
+    if (!homePage) {
+      return res.status(200).json({
+        success: true,
+        data: []
+      });
+    }
+
+    const activeHeroSections = homePage.heroSections
+      .filter(h => h.isActive)
+      .sort((a, b) => a.order - b.order)
+      .map(h => ({
+        type: h.type,
+        url: h.url,
+        filename: h.filename
+      }));
+
+    return res.status(200).json({
+      success: true,
+      data: activeHeroSections
+    });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Get active banner sections for users
+ * GET /api/homepage/banner
+ */
+export const getUserBannerSections = async (req, res) => {
+  try {
+    const homePage = await HomePage.findOne();
+    
+    if (!homePage) {
+      return res.status(200).json({
+        success: true,
+        data: []
+      });
+    }
+
+    const activeBanners = homePage.banners
+      .filter(b => b.isActive)
+      .sort((a, b) => a.order - b.order);
+
+    return res.status(200).json({
+      success: true,
+      data: activeBanners
+    });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Get complete home page (all sections)
+ * GET /api/homepage
+ */
+export const getHomePage = async (req, res) => {
+  try {
+    const homePage = await HomePage.findOne();
+    
+    if (!homePage) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          heroSections: [],
+          banners: []
+        }
+      });
+    }
+
+    const activeHeroSections = homePage.heroSections
+      .filter(h => h.isActive)
+      .sort((a, b) => a.order - b.order)
+      .map(h => ({
+        type: h.type,
+        url: h.url,
+        filename: h.filename
+      }));
+
+    const activeBanners = homePage.banners
+      .filter(b => b.isActive)
+      .sort((a, b) => a.order - b.order);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        heroSections: activeHeroSections,
+        banners: activeBanners
+      }
+    });
+
+  } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };

@@ -1,4 +1,6 @@
 import Admin from '../Models/Admin.js';
+import LoginScreenMedia from '../Models/LoginScreenMedia.js';
+import HomePage from '../Models/HomePage.js';
 import User from '../Models/User.js';
 import Product from '../Models/Product.js';
 import Order from '../Models/Order.js';
@@ -2372,6 +2374,617 @@ export const getOrderStatistics = async (req, res) => {
 
   } catch (error) {
     console.error('getOrderStatistics error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+// ==================== LOGIN SCREEN MEDIA CONTROLLERS ====================
+
+/**
+ * Upload login screen media (replaces any existing media)
+ * POST /api/admin/login-screen/upload
+ */
+export const uploadLoginScreenMedia = async (req, res) => {
+  try {
+    const file = req.file;
+    const adminId = req.user.id;
+
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        message: 'No file uploaded'
+      });
+    }
+
+    const mediaType = file.mimetype.startsWith('image/') ? 'image' : 'video';
+    const folder = mediaType === 'image' ? 'login-screen/images' : 'login-screen/videos';
+    const urlFolder = mediaType === 'image' ? 'login-screen/images' : 'login-screen/videos';
+
+    // Delete existing media from database and filesystem
+    const existingMedia = await LoginScreenMedia.findOne();
+    
+    if (existingMedia) {
+      // Delete physical file
+      const oldFolder = existingMedia.type === 'image' ? 'login-screen/images' : 'login-screen/videos';
+      const oldFilePath = `uploads/${oldFolder}/${existingMedia.filename}`;
+      deleteFile(oldFilePath);
+      
+      // Delete database record
+      await LoginScreenMedia.deleteOne({ _id: existingMedia._id });
+    }
+
+    // Ensure directory exists
+    if (!fs.existsSync(`uploads/${folder}`)) {
+      fs.mkdirSync(`uploads/${folder}`, { recursive: true });
+    }
+
+    // Save to database
+    const newMedia = new LoginScreenMedia({
+      type: mediaType,
+      filename: file.filename,
+      url: getFileUrl(req, path.basename(file.path), urlFolder)
+    });
+
+    await newMedia.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `${mediaType} uploaded successfully`,
+      data: {
+        type: mediaType,
+        url: newMedia.url,
+        filename: newMedia.filename
+      }
+    });
+
+  } catch (error) {
+    if (req.file?.path) deleteFile(req.file.path);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+/**
+ * Delete current active media
+ * DELETE /api/admin/login-screen/media
+ */
+export const deleteLoginScreenMedia = async (req, res) => {
+  try {
+    const media = await LoginScreenMedia.findOne();
+    
+    if (!media) {
+      return res.status(404).json({
+        success: false,
+        message: 'No media found'
+      });
+    }
+
+    // Delete physical file
+    const folder = media.type === 'image' ? 'login-screen/images' : 'login-screen/videos';
+    const filePath = `uploads/${folder}/${media.filename}`;
+    deleteFile(filePath);
+    
+    // Delete database record
+    await LoginScreenMedia.deleteOne({ _id: media._id });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Login screen media deleted successfully'
+    });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Check if media exists (admin)
+ * GET /api/admin/login-screen/media/exists
+ */
+export const checkLoginScreenMedia = async (req, res) => {
+  try {
+    const media = await LoginScreenMedia.findOne();
+    
+    return res.status(200).json({
+      success: true,
+      exists: !!media,
+      data: media ? {
+        type: media.type,
+        url: media.url,
+        filename: media.filename
+      } : null
+    });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+// ==================== HERO SECTION CONTROLLERS ====================
+
+/**
+ * Add hero section
+ * POST /api/admin/homepage/hero/add
+ */
+export const addHeroSection = async (req, res) => {
+  try {
+    const { type, order } = req.body;
+    const file = req.file;
+
+    if (!type || !['image', 'video'].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Type is required and must be "image" or "video"'
+      });
+    }
+
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        message: 'File is required'
+      });
+    }
+
+    const folder = type === 'image' ? 'homepage/hero/images' : 'homepage/hero/videos';
+    const urlFolder = type === 'image' ? 'homepage/hero/images' : 'homepage/hero/videos';
+    
+    if (!fs.existsSync(`uploads/${folder}`)) {
+      fs.mkdirSync(`uploads/${folder}`, { recursive: true });
+    }
+
+    const filename = file.filename;
+    const url = getFileUrl(req, path.basename(file.path), urlFolder);
+
+    let homePage = await HomePage.findOne();
+    if (!homePage) {
+      homePage = new HomePage({ heroSections: [], banners: [] });
+    }
+
+    homePage.heroSections.push({
+      type,
+      filename,
+      url,
+      order: order || homePage.heroSections.length,
+      isActive: true
+    });
+
+    await homePage.save();
+
+    return res.status(201).json({
+      success: true,
+      message: 'Hero section added successfully',
+      data: homePage.heroSections
+    });
+
+  } catch (error) {
+    if (req.file?.path) deleteFile(req.file.path);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Get all hero sections (Admin)
+ * GET /api/admin/homepage/hero
+ */
+export const getHeroSections = async (req, res) => {
+  try {
+    const homePage = await HomePage.findOne();
+    
+    if (!homePage) {
+      return res.status(200).json({
+        success: true,
+        data: []
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: homePage.heroSections.sort((a, b) => a.order - b.order)
+    });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Get single hero section by ID (Admin)
+ * GET /api/admin/homepage/hero/:heroId
+ */
+export const getHeroSectionById = async (req, res) => {
+  try {
+    const { heroId } = req.params;
+
+    const homePage = await HomePage.findOne();
+    if (!homePage) {
+      return res.status(404).json({
+        success: false,
+        message: 'Home page not found'
+      });
+    }
+
+    const hero = homePage.heroSections.id(heroId);
+    if (!hero) {
+      return res.status(404).json({
+        success: false,
+        message: 'Hero section not found'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: hero
+    });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Update hero section
+ * PUT /api/admin/homepage/hero/:heroId
+ */
+export const updateHeroSection = async (req, res) => {
+  try {
+    const { heroId } = req.params;
+    const { type, order, isActive } = req.body;
+    const file = req.file;
+
+    const homePage = await HomePage.findOne();
+    if (!homePage) {
+      return res.status(404).json({ success: false, message: 'Home page not found' });
+    }
+
+    const hero = homePage.heroSections.id(heroId);
+    if (!hero) {
+      return res.status(404).json({ success: false, message: 'Hero section not found' });
+    }
+
+    if (type) hero.type = type;
+    if (order !== undefined) hero.order = order;
+    if (isActive !== undefined) hero.isActive = isActive === 'true';
+
+    if (file) {
+      if (hero.filename) {
+        const oldFolder = hero.type === 'image' ? 'homepage/hero/images' : 'homepage/hero/videos';
+        const oldFilePath = `uploads/${oldFolder}/${hero.filename}`;
+        deleteFile(oldFilePath);
+      }
+      
+      const folder = hero.type === 'image' ? 'homepage/hero/images' : 'homepage/hero/videos';
+      const urlFolder = hero.type === 'image' ? 'homepage/hero/images' : 'homepage/hero/videos';
+      
+      hero.filename = file.filename;
+      hero.url = getFileUrl(req, path.basename(file.path), urlFolder);
+    }
+
+    await homePage.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Hero section updated successfully',
+      data: hero
+    });
+
+  } catch (error) {
+    if (req.file?.path) deleteFile(req.file.path);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Delete hero section
+ * DELETE /api/admin/homepage/hero/:heroId
+ */
+export const deleteHeroSection = async (req, res) => {
+  try {
+    const { heroId } = req.params;
+
+    const homePage = await HomePage.findOne();
+    if (!homePage) {
+      return res.status(404).json({ success: false, message: 'Home page not found' });
+    }
+
+    const hero = homePage.heroSections.id(heroId);
+    if (!hero) {
+      return res.status(404).json({ success: false, message: 'Hero section not found' });
+    }
+
+    if (hero.filename) {
+      const folder = hero.type === 'image' ? 'homepage/hero/images' : 'homepage/hero/videos';
+      const filePath = `uploads/${folder}/${hero.filename}`;
+      deleteFile(filePath);
+    }
+
+    homePage.heroSections.pull(heroId);
+    await homePage.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Hero section deleted successfully'
+    });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Toggle hero section status
+ * PATCH /api/admin/homepage/hero/:heroId/toggle
+ */
+export const toggleHeroSection = async (req, res) => {
+  try {
+    const { heroId } = req.params;
+
+    const homePage = await HomePage.findOne();
+    if (!homePage) {
+      return res.status(404).json({ success: false, message: 'Home page not found' });
+    }
+
+    const hero = homePage.heroSections.id(heroId);
+    if (!hero) {
+      return res.status(404).json({ success: false, message: 'Hero section not found' });
+    }
+
+    hero.isActive = !hero.isActive;
+    await homePage.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Hero section ${hero.isActive ? 'activated' : 'deactivated'}`,
+      data: hero
+    });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== BANNER SECTION CONTROLLERS ====================
+
+/**
+ * Add banner section
+ * POST /api/admin/homepage/banner/add
+ */
+export const addBannerSection = async (req, res) => {
+  try {
+    const { title, subtitle, tags, buttonText, order } = req.body;
+    const file = req.file;
+
+    if (!title || !file) {
+      return res.status(400).json({
+        success: false,
+        message: 'Title and image are required'
+      });
+    }
+
+    const folder = 'homepage/banners';
+    if (!fs.existsSync(`uploads/${folder}`)) {
+      fs.mkdirSync(`uploads/${folder}`, { recursive: true });
+    }
+
+    const imageUrl = getFileUrl(req, path.basename(file.path), folder);
+
+    let homePage = await HomePage.findOne();
+    if (!homePage) {
+      homePage = new HomePage({ heroSections: [], banners: [] });
+    }
+
+    let tagsArray = [];
+    if (tags) {
+      try {
+        tagsArray = typeof tags === 'string' ? JSON.parse(tags) : tags;
+      } catch (e) {
+        tagsArray = [];
+      }
+    }
+
+    homePage.banners.push({
+      title,
+      subtitle: subtitle || '',
+      tags: tagsArray,
+      buttonText: buttonText || 'Shop Now',
+      image: imageUrl,
+      order: order || homePage.banners.length,
+      isActive: true
+    });
+
+    await homePage.save();
+
+    return res.status(201).json({
+      success: true,
+      message: 'Banner section added successfully',
+      data: homePage.banners
+    });
+
+  } catch (error) {
+    if (req.file?.path) deleteFile(req.file.path);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Get all banner sections (Admin)
+ * GET /api/admin/homepage/banner
+ */
+export const getBannerSections = async (req, res) => {
+  try {
+    const homePage = await HomePage.findOne();
+    
+    if (!homePage) {
+      return res.status(200).json({
+        success: true,
+        data: []
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: homePage.banners.sort((a, b) => a.order - b.order)
+    });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Get single banner section by ID (Admin)
+ * GET /api/admin/homepage/banner/:bannerId
+ */
+export const getBannerSectionById = async (req, res) => {
+  try {
+    const { bannerId } = req.params;
+
+    const homePage = await HomePage.findOne();
+    if (!homePage) {
+      return res.status(404).json({
+        success: false,
+        message: 'Home page not found'
+      });
+    }
+
+    const banner = homePage.banners.id(bannerId);
+    if (!banner) {
+      return res.status(404).json({
+        success: false,
+        message: 'Banner section not found'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: banner
+    });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Update banner section
+ * PUT /api/admin/homepage/banner/:bannerId
+ */
+export const updateBannerSection = async (req, res) => {
+  try {
+    const { bannerId } = req.params;
+    const { title, subtitle, tags, buttonText, order, isActive } = req.body;
+    const file = req.file;
+
+    const homePage = await HomePage.findOne();
+    if (!homePage) {
+      return res.status(404).json({ success: false, message: 'Home page not found' });
+    }
+
+    const banner = homePage.banners.id(bannerId);
+    if (!banner) {
+      return res.status(404).json({ success: false, message: 'Banner section not found' });
+    }
+
+    if (title) banner.title = title;
+    if (subtitle !== undefined) banner.subtitle = subtitle;
+    if (buttonText) banner.buttonText = buttonText;
+    if (order !== undefined) banner.order = order;
+    if (isActive !== undefined) banner.isActive = isActive === 'true';
+
+    if (tags) {
+      try {
+        banner.tags = typeof tags === 'string' ? JSON.parse(tags) : tags;
+      } catch (e) {
+        banner.tags = [];
+      }
+    }
+
+    if (file) {
+      if (banner.image && !banner.image.startsWith('http')) {
+        deleteFile(banner.image);
+      }
+      const folder = 'homepage/banners';
+      banner.image = getFileUrl(req, path.basename(file.path), folder);
+    }
+
+    await homePage.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Banner section updated successfully',
+      data: banner
+    });
+
+  } catch (error) {
+    if (req.file?.path) deleteFile(req.file.path);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Delete banner section
+ * DELETE /api/admin/homepage/banner/:bannerId
+ */
+export const deleteBannerSection = async (req, res) => {
+  try {
+    const { bannerId } = req.params;
+
+    const homePage = await HomePage.findOne();
+    if (!homePage) {
+      return res.status(404).json({ success: false, message: 'Home page not found' });
+    }
+
+    const banner = homePage.banners.id(bannerId);
+    if (!banner) {
+      return res.status(404).json({ success: false, message: 'Banner section not found' });
+    }
+
+    if (banner.image && !banner.image.startsWith('http')) {
+      deleteFile(banner.image);
+    }
+
+    homePage.banners.pull(bannerId);
+    await homePage.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Banner section deleted successfully'
+    });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Toggle banner section status
+ * PATCH /api/admin/homepage/banner/:bannerId/toggle
+ */
+export const toggleBannerSection = async (req, res) => {
+  try {
+    const { bannerId } = req.params;
+
+    const homePage = await HomePage.findOne();
+    if (!homePage) {
+      return res.status(404).json({ success: false, message: 'Home page not found' });
+    }
+
+    const banner = homePage.banners.id(bannerId);
+    if (!banner) {
+      return res.status(404).json({ success: false, message: 'Banner section not found' });
+    }
+
+    banner.isActive = !banner.isActive;
+    await homePage.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Banner section ${banner.isActive ? 'activated' : 'deactivated'}`,
+      data: banner
+    });
+
+  } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };

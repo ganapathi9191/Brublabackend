@@ -27,7 +27,15 @@ import {
   createOrder,
   getUserOrders,
   getOrderById,
-  cancelOrder
+  cancelOrder,
+
+  // Login screen media
+  getLoginScreenMedia,
+
+  // Home page
+  getUserHeroSections,
+  getUserBannerSections,
+  getHomePage
 } from '../Controller/UserController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { upload } from '../config/multerConfig.js';
@@ -54,7 +62,7 @@ router.post('/login/verify-otp', verifyLoginOtp);
 
 // Register
 router.post('/register', register);
-router.post('/register/verify-otp', verifyRegisterOtp);
+router.post('/register/verify-otp', verifyRegisterOtp); 
 
 // Common
 router.post('/resend-otp', resendOtp);
@@ -87,13 +95,22 @@ router.get('/order/:userId', getUserOrders);
 router.get('/order/:userId/:orderId', getOrderById);
 router.put('/order/:userId/:orderId/cancel', cancelOrder);
 
+
+//Login screen media routes
+router.get('/login-screen/media', getLoginScreenMedia);
+
+// Home page routes
+router.get('/home-page/hero-sections', getUserHeroSections);
+router.get('/home-page/banner-sections', getUserBannerSections);
+router.get('/home-page', getHomePage); // New route to get entire home page data in one call
+  
+
 // Address routes (no authentication)
 router.post('/add/:userId', addAddress);
 router.get('/all/:userId', getAllAddresses);
 router.get('/:userId/:addressId', getAddressById);
 router.put('/update/:userId/:addressId', updateAddress);
 router.delete('/delete/:userId/:addressId', deleteAddress);
-
 
 
 export default router;

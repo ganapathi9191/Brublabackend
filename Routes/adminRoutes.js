@@ -2,7 +2,7 @@
 // routes/adminRoutes.js
 import express from 'express';
 import User from '../Models/User.js';
-import { upload, uploadProductMedia, uploadMultipleImages} from '../config/multerConfig.js';
+import { upload, uploadProductMedia, uploadMultipleImages, uploadLoginMedia, uploadSingleImage } from '../config/multerConfig.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 
 import {
@@ -54,7 +54,26 @@ import {
   getAllOrders,
   getOrderStatistics,
   getOrderByIdAdmin,
-  updateOrderStatus
+  updateOrderStatus,
+
+  // Login Screen Media Management
+  uploadLoginScreenMedia,
+  deleteLoginScreenMedia,
+  checkLoginScreenMedia,
+
+  // Homepage Management
+  addHeroSection,
+  getHeroSections,
+  getHeroSectionById,
+  updateHeroSection,
+  deleteHeroSection,
+  toggleHeroSection,
+  addBannerSection,
+  getBannerSections,
+  getBannerSectionById,
+  updateBannerSection,
+  deleteBannerSection,
+  toggleBannerSection
 } from '../Controller/adminController.js';
 
 const router = express.Router();
@@ -115,5 +134,26 @@ router.get('/orders/:orderId', authenticateToken, getOrderByIdAdmin);
 router.put('/orders/:orderId/status', authenticateToken, updateOrderStatus);
 
 
+// ==================== LOGIN SCREEN MEDIA MANAGEMENT ====================
+router.post('/login-screen/upload', authenticateToken, uploadLoginMedia, uploadLoginScreenMedia);
+router.delete('/login-screen/media/:filename', deleteLoginScreenMedia);
+router.get('/login-screen/media/:filename', checkLoginScreenMedia);
+
+
+// Hero Section Routes
+router.post('/homepage/hero/add', uploadProductMedia, addHeroSection);
+router.get('/homepage/hero', getHeroSections);
+router.get('/homepage/hero/:heroId', getHeroSectionById);
+router.put('/homepage/hero/:heroId', uploadProductMedia, updateHeroSection);
+router.delete('/homepage/hero/:heroId', deleteHeroSection);
+router.patch('/homepage/hero/:heroId/toggle', toggleHeroSection);
+
+// Banner Section Routes
+router.post('/homepage/banner/add', uploadSingleImage, addBannerSection);
+router.get('/homepage/banner', getBannerSections);
+router.get('/homepage/banner/:bannerId', getBannerSectionById);
+router.put('/homepage/banner/:bannerId', uploadSingleImage, updateBannerSection);
+router.delete('/homepage/banner/:bannerId', deleteBannerSection);
+router.patch('/homepage/banner/:bannerId/toggle', toggleBannerSection);
 
 export default router;

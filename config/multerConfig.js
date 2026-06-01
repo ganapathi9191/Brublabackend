@@ -286,3 +286,31 @@ export const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: imageFilter
 });
+
+
+// config/multerConfig.js - Add this
+const loginScreenStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const folder = file.mimetype.startsWith('image/') 
+      ? 'uploads/login-screen/images' 
+      : 'uploads/login-screen/videos';
+    if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
+    cb(null, folder);
+  },
+  filename: (req, file, cb) => {
+    const prefix = file.mimetype.startsWith('image/') ? 'login-img' : 'login-vid';
+    cb(null, `${prefix}-${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(file.originalname)}`);
+  }
+});
+
+export const uploadLoginMedia = multer({
+  storage: loginScreenStorage,
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only images and videos allowed'), false);
+    }
+  }
+}).single('media');

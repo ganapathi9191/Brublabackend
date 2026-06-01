@@ -2510,6 +2510,7 @@ export const checkLoginScreenMedia = async (req, res) => {
  */
 export const addHeroSection = async (req, res) => {
   try {
+
     const { type, order } = req.body;
     const file = req.file;
 

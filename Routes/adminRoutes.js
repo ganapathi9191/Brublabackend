@@ -2,7 +2,7 @@
 // routes/adminRoutes.js
 import express from 'express';
 import User from '../Models/User.js';
-import { upload, uploadProductMedia, uploadMultipleImages, uploadLoginMedia, uploadSingleImage } from '../config/multerConfig.js';
+import { upload, uploadProductMedia, uploadMultipleImages, uploadLoginMedia, uploadSingleImage, uploadHeroMedia } from '../config/multerConfig.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 
 import {
@@ -141,18 +141,18 @@ router.get('/login-screen/media/:filename', checkLoginScreenMedia);
 
 
 // Hero Section Routes
-router.post('/homepage/hero/add', uploadProductMedia, addHeroSection);
+router.post('/homepage/hero/add', uploadHeroMedia, addHeroSection);
 router.get('/homepage/hero', getHeroSections);
 router.get('/homepage/hero/:heroId', getHeroSectionById);
-router.put('/homepage/hero/:heroId', uploadProductMedia, updateHeroSection);
+router.put('/homepage/hero/:heroId', uploadHeroMedia, updateHeroSection);
 router.delete('/homepage/hero/:heroId', deleteHeroSection);
 router.patch('/homepage/hero/:heroId/toggle', toggleHeroSection);
 
 // Banner Section Routes
-router.post('/homepage/banner/add', uploadSingleImage, addBannerSection);
+router.post('/homepage/banner/add', uploadHeroMedia, addBannerSection);
 router.get('/homepage/banner', getBannerSections);
 router.get('/homepage/banner/:bannerId', getBannerSectionById);
-router.put('/homepage/banner/:bannerId', uploadSingleImage, updateBannerSection);
+router.put('/homepage/banner/:bannerId', uploadHeroMedia, updateBannerSection);
 router.delete('/homepage/banner/:bannerId', deleteBannerSection);
 router.patch('/homepage/banner/:bannerId/toggle', toggleBannerSection);
 

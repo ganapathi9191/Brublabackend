@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 const heroSectionSchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: ['image', 'video'],
+    enum: ['image', 'video', 'url'],
     required: true
   },
   filename: {

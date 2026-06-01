@@ -314,3 +314,53 @@ export const uploadLoginMedia = multer({
     }
   }
 }).single('media');
+
+
+// ==================== HERO SECTION STORAGE ====================
+
+// Configure storage for hero section images/videos
+const heroStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const type = req.body.type;
+    let folder = 'uploads/homepage/hero/images';
+    
+    if (type === 'video') {
+      folder = 'uploads/homepage/hero/videos';
+    } else if (file.mimetype.startsWith('video/')) {
+      folder = 'uploads/homepage/hero/videos';
+    }
+    
+    ensureDirectoryExists(folder);
+    cb(null, folder);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    const prefix = file.mimetype.startsWith('image/') ? 'hero-img' : 'hero-vid';
+    cb(null, `${prefix}-${uniqueSuffix}${ext}`);
+  }
+});
+
+// File filter for hero section
+const heroFilter = (req, file, cb) => {
+  const type = req.body.type;
+  
+  if (type === 'image' && !file.mimetype.startsWith('image/')) {
+    cb(new Error('Please upload an image file for hero section'), false);
+  } else if (type === 'video' && !file.mimetype.startsWith('video/')) {
+    cb(new Error('Please upload a video file for hero section'), false);
+  } else if (!type && !file.mimetype.startsWith('image/') && !file.mimetype.startsWith('video/')) {
+    cb(new Error('Only images and videos are allowed for hero section'), false);
+  } else {
+    cb(null, true);
+  }
+};
+
+// ==================== HERO SECTION UPLOAD ====================
+
+// Hero section media upload (single file - image or video)
+export const uploadHeroMedia = multer({
+  storage: heroStorage,
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: heroFilter
+}).single('media');

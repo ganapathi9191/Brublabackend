@@ -364,3 +364,40 @@ export const uploadHeroMedia = multer({
   limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: heroFilter
 }).single('media');
+
+
+// ==================== BANNER STORAGE FOR HOMEPAGE ====================
+
+// Configure storage for homepage banners
+const homepageBannerStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const folder = 'uploads/homepage/banners';
+    ensureDirectoryExists(folder);
+    cb(null, folder);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, 'banner-' + uniqueSuffix + ext);
+  }
+});
+
+// File filter for homepage banners
+const bannerFilter = (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|gif|webp/;
+  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  const mimetype = allowedTypes.test(file.mimetype);
+  
+  if (mimetype && extname) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only image files are allowed for banners (jpeg, jpg, png, gif, webp)'));
+  }
+};
+
+// Upload for homepage banner (single image)
+export const uploadHomepageBanner = multer({
+  storage: homepageBannerStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: bannerFilter
+}).single('image'); 

@@ -1,6 +1,8 @@
 import User from '../Models/User.js';
-import Order from '../Models/Order.js';
+import HomePage from '../Models/HomePage.js';
 import LoginScreenMedia from '../Models/LoginScreenMedia.js';
+import Collection from '../Models/Collection.js';
+import { getFileUrl, deleteFile } from '../utils/fileUtils.js';
 import Product from '../Models/Product.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -1791,11 +1793,23 @@ export const getUserHeroSections = async (req, res) => {
     const activeHeroSections = homePage.heroSections
       .filter(h => h.isActive)
       .sort((a, b) => a.order - b.order)
-      .map(h => ({
-        type: h.type,
-        url: h.url,
-        filename: h.filename
-      }));
+      .map(h => {
+        // For YouTube, also provide extracted video ID for easy embedding
+        if (h.type === 'youtube') {
+          const youtubeId = extractYouTubeId(h.url);
+          return {
+            type: h.type,
+            url: h.url,
+            youtubeId: youtubeId,
+            filename: h.filename
+          };
+        }
+        return {
+          type: h.type,
+          url: h.url,
+          filename: h.filename
+        };
+      });
 
     return res.status(200).json({
       success: true,
@@ -1857,11 +1871,22 @@ export const getHomePage = async (req, res) => {
     const activeHeroSections = homePage.heroSections
       .filter(h => h.isActive)
       .sort((a, b) => a.order - b.order)
-      .map(h => ({
-        type: h.type,
-        url: h.url,
-        filename: h.filename
-      }));
+      .map(h => {
+        if (h.type === 'youtube') {
+          const youtubeId = extractYouTubeId(h.url);
+          return {
+            type: h.type,
+            url: h.url,
+            youtubeId: youtubeId,
+            filename: h.filename
+          };
+        }
+        return {
+          type: h.type,
+          url: h.url,
+          filename: h.filename
+        };
+      });
 
     const activeBanners = homePage.banners
       .filter(b => b.isActive)
@@ -1877,5 +1902,116 @@ export const getHomePage = async (req, res) => {
 
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== COLLECTION CONTROLLERS ====================
+/**
+ * Get all active collections for users
+ * GET /api/collections
+ */
+export const getUserCollections = async (req, res) => {
+  try {
+    const collections = await Collection.find({ isActive: true })
+      .select('title tag description image order')
+      .sort({ order: 1, createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: collections.length,
+      data: collections
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Get single collection with full product details
+ * GET /api/collections/:collectionId
+ */
+export const getUserCollectionById = async (req, res) => {
+  try {
+    const { collectionId } = req.params;
+
+    const collection = await Collection.findOne({ 
+      _id: collectionId, 
+      isActive: true 
+    }).populate('products');  // This gives you collection + all products
+
+    if (!collection) {
+      return res.status(404).json({
+        success: false,
+        message: 'Collection not found'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: collection
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Home Page Collections
+export const getHomepageCollections = async (req, res) => {
+  try {
+    const homepage = await HomePage.findOne();
+    
+    if (!homepage || !homepage.homepageCollections || homepage.homepageCollections.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        data: []
+      });
+    }
+
+    // Populate collections with their products
+    const populatedHomepage = await HomePage.findById(homepage._id)
+      .populate({
+        path: 'homepageCollections.collectionId',
+        match: { isActive: true },
+        populate: {
+          path: 'products',
+          model: 'Product',
+          match: { isActive: true }
+        }
+      });
+
+    // Filter active collections and sort by order
+    const activeCollections = populatedHomepage.homepageCollections
+      .filter(item => item.isActive && item.collectionId)
+      .sort((a, b) => a.order - b.order)
+      .map(item => ({
+        _id: item.collectionId._id,
+        title: item.collectionId.title,
+        tag: item.collectionId.tag,
+        description: item.collectionId.description,
+        image: item.collectionId.image,
+        order: item.order,
+        products: item.collectionId.products || []
+      }));
+
+    return res.status(200).json({
+      success: true,
+      count: activeCollections.length,
+      data: activeCollections
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };

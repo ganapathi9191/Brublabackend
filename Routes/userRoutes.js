@@ -35,7 +35,14 @@ import {
   // Home page
   getUserHeroSections,
   getUserBannerSections,
-  getHomePage
+  getHomePage,
+
+  // Collection
+  getUserCollections,
+  getUserCollectionById,
+
+  //HomePage Collection
+  getHomepageCollections
 } from '../Controller/UserController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { upload } from '../config/multerConfig.js';
@@ -66,6 +73,13 @@ router.post('/register/verify-otp', verifyRegisterOtp);
 
 // Common
 router.post('/resend-otp', resendOtp);
+
+// Collection routes
+router.get('/collections', getUserCollections);
+router.get('/collections/:collectionId', getUserCollectionById);
+
+//Home Page Collection
+router.get('/homepage/collections', getHomepageCollections);
 
 // Profile routes (no authentication)
 router.get('/:userId', getUserById);
@@ -103,7 +117,7 @@ router.get('/login-screen/media', getLoginScreenMedia);
 router.get('/home-page/hero', getUserHeroSections);
 router.get('/home-page/banner', getUserBannerSections);
 router.get('/home-page', getHomePage); 
-  
+
 
 // Address routes (no authentication)
 router.post('/add/:userId', addAddress);

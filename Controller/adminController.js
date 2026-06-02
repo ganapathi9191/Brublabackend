@@ -2,6 +2,7 @@ import Admin from '../Models/Admin.js';
 import LoginScreenMedia from '../Models/LoginScreenMedia.js';
 import HomePage from '../Models/HomePage.js';
 import User from '../Models/User.js';
+import Collection from '../Models/Collection.js';
 import Product from '../Models/Product.js';
 import Order from '../Models/Order.js';
 import Banner from '../Models/Banner.js';
@@ -2504,39 +2505,70 @@ export const checkLoginScreenMedia = async (req, res) => {
 
 // ==================== HERO SECTION CONTROLLERS ====================
 
+// Helper function to extract YouTube ID from URL (for frontend use)
+const extractYouTubeId = (url) => {
+  if (!url) return null;
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=)([^&]+)/i,
+    /(?:youtu\.be\/)([^?]+)/i,
+    /(?:youtube\.com\/embed\/)([^?]+)/i,
+    /(?:youtube\.com\/shorts\/)([^?]+)/i
+  ];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
+};
+
 /**
  * Add hero section
  * POST /api/admin/homepage/hero/add
  */
 export const addHeroSection = async (req, res) => {
   try {
-
-    const { type, order } = req.body;
+    const { type, order, url } = req.body;
     const file = req.file;
 
-    if (!type || !['image', 'video'].includes(type)) {
+    if (!type || !['image', 'video', 'youtube'].includes(type)) {
       return res.status(400).json({
         success: false,
-        message: 'Type is required and must be "image" or "video"'
+        message: 'Type is required and must be "image", "video", or "youtube"'
       });
     }
 
-    if (!file) {
-      return res.status(400).json({
-        success: false,
-        message: 'File is required'
-      });
-    }
+    let filename = null;
+    let fileUrl = null;
 
-    const folder = type === 'image' ? 'homepage/hero/images' : 'homepage/hero/videos';
-    const urlFolder = type === 'image' ? 'homepage/hero/images' : 'homepage/hero/videos';
-    
-    if (!fs.existsSync(`uploads/${folder}`)) {
-      fs.mkdirSync(`uploads/${folder}`, { recursive: true });
-    }
+    // Handle file upload for image/video
+    if (type === 'image' || type === 'video') {
+      if (!file) {
+        return res.status(400).json({
+          success: false,
+          message: 'File is required for image/video type'
+        });
+      }
 
-    const filename = file.filename;
-    const url = getFileUrl(req, path.basename(file.path), urlFolder);
+      const folder = type === 'image' ? 'homepage/hero/images' : 'homepage/hero/videos';
+      const urlFolder = type === 'image' ? 'homepage/hero/images' : 'homepage/hero/videos';
+      
+      if (!fs.existsSync(`uploads/${folder}`)) {
+        fs.mkdirSync(`uploads/${folder}`, { recursive: true });
+      }
+
+      filename = file.filename;
+      fileUrl = getFileUrl(req, path.basename(file.path), urlFolder);
+    } 
+    // Handle YouTube URL
+    else if (type === 'youtube') {
+      if (!url) {
+        return res.status(400).json({
+          success: false,
+          message: 'URL is required for youtube type'
+        });
+      }
+      fileUrl = url;
+    }
 
     let homePage = await HomePage.findOne();
     if (!homePage) {
@@ -2546,8 +2578,8 @@ export const addHeroSection = async (req, res) => {
     homePage.heroSections.push({
       type,
       filename,
-      url,
-      order: order || homePage.heroSections.length,
+      url: fileUrl,
+      order: order !== undefined ? order : homePage.heroSections.length,
       isActive: true
     });
 
@@ -2631,7 +2663,7 @@ export const getHeroSectionById = async (req, res) => {
 export const updateHeroSection = async (req, res) => {
   try {
     const { heroId } = req.params;
-    const { type, order, isActive } = req.body;
+    const { type, order, isActive, url } = req.body;
     const file = req.file;
 
     const homePage = await HomePage.findOne();
@@ -2648,7 +2680,8 @@ export const updateHeroSection = async (req, res) => {
     if (order !== undefined) hero.order = order;
     if (isActive !== undefined) hero.isActive = isActive === 'true';
 
-    if (file) {
+    // Handle file update for image/video
+    if (file && (hero.type === 'image' || hero.type === 'video')) {
       if (hero.filename) {
         const oldFolder = hero.type === 'image' ? 'homepage/hero/images' : 'homepage/hero/videos';
         const oldFilePath = `uploads/${oldFolder}/${hero.filename}`;
@@ -2660,6 +2693,11 @@ export const updateHeroSection = async (req, res) => {
       
       hero.filename = file.filename;
       hero.url = getFileUrl(req, path.basename(file.path), urlFolder);
+    }
+    
+    // Handle URL update for youtube
+    if (hero.type === 'youtube' && url) {
+      hero.url = url;
     }
 
     await homePage.save();
@@ -2753,7 +2791,7 @@ export const toggleHeroSection = async (req, res) => {
  */
 export const addBannerSection = async (req, res) => {
   try {
-    const { title, subtitle, tags, buttonText, order } = req.body;
+    const { title, subtitle, tag, buttonText, order } = req.body;
     const file = req.file;
 
     if (!title || !file) {
@@ -2775,19 +2813,11 @@ export const addBannerSection = async (req, res) => {
       homePage = new HomePage({ heroSections: [], banners: [] });
     }
 
-    let tagsArray = [];
-    if (tags) {
-      try {
-        tagsArray = typeof tags === 'string' ? JSON.parse(tags) : tags;
-      } catch (e) {
-        tagsArray = [];
-      }
-    }
 
     homePage.banners.push({
       title,
       subtitle: subtitle || '',
-      tags: tagsArray,
+      tag: tag || '',
       buttonText: buttonText || 'Shop Now',
       image: imageUrl,
       order: order || homePage.banners.length,
@@ -2874,7 +2904,7 @@ export const getBannerSectionById = async (req, res) => {
 export const updateBannerSection = async (req, res) => {
   try {
     const { bannerId } = req.params;
-    const { title, subtitle, tags, buttonText, order, isActive } = req.body;
+    const { title, subtitle, tag, buttonText, order, isActive } = req.body;
     const file = req.file;
 
     const homePage = await HomePage.findOne();
@@ -2889,17 +2919,11 @@ export const updateBannerSection = async (req, res) => {
 
     if (title) banner.title = title;
     if (subtitle !== undefined) banner.subtitle = subtitle;
+    if (tag !== undefined) banner.tag = tag;
     if (buttonText) banner.buttonText = buttonText;
     if (order !== undefined) banner.order = order;
     if (isActive !== undefined) banner.isActive = isActive === 'true';
 
-    if (tags) {
-      try {
-        banner.tags = typeof tags === 'string' ? JSON.parse(tags) : tags;
-      } catch (e) {
-        banner.tags = [];
-      }
-    }
 
     if (file) {
       if (banner.image && !banner.image.startsWith('http')) {
@@ -2987,5 +3011,706 @@ export const toggleBannerSection = async (req, res) => {
 
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+
+// ==================== COLLECTION CRUD OPERATIONS ====================
+
+/**
+ * Create a new collection
+ * POST /api/admin/collections
+ */
+export const createCollection = async (req, res) => {
+  try {
+    const { title, tag, description, order } = req.body;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        message: 'Image is required'
+      });
+    }
+
+    // Check if collection already exists
+    const existingCollection = await Collection.findOne({ title });
+    if (existingCollection) {
+      return res.status(400).json({
+        success: false,
+        message: 'Collection with this title already exists'
+      });
+    }
+
+    const imageUrl = getFileUrl(req, file.filename, 'collections');
+
+    const collection = new Collection({
+      title,
+      tag,
+      description,
+      image: imageUrl,
+      order: order || 0,
+      isActive: true,
+      products: []
+    });
+
+    await collection.save();
+
+    return res.status(201).json({
+      success: true,
+      message: 'Collection created successfully',
+      data: collection
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Get all collections (Admin)
+ * GET /api/admin/collections
+ */
+export const getAllCollections = async (req, res) => {
+  try {
+    const collections = await Collection.find()
+      .sort({ order: 1, createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: collections.length,
+      data: collections
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Get single collection by ID (Admin)
+ * GET /api/admin/collections/:collectionId
+ */
+export const getCollectionById = async (req, res) => {
+  try {
+    const { collectionId } = req.params;
+
+    const collection = await Collection.findById(collectionId)
+      .populate('products');
+
+    if (!collection) {
+      return res.status(404).json({
+        success: false,
+        message: 'Collection not found'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: collection
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Update collection
+ * PUT /api/admin/collections/:collectionId
+ */
+export const updateCollection = async (req, res) => {
+  try {
+    const { collectionId } = req.params;
+    const { title, tag, description, order, isActive } = req.body;
+    const file = req.file;
+
+    const collection = await Collection.findById(collectionId);
+    if (!collection) {
+      return res.status(404).json({
+        success: false,
+        message: 'Collection not found'
+      });
+    }
+
+    // Update fields
+    if (title) collection.title = title;
+    if (tag) collection.tag = tag;
+    if (description) collection.description = description;
+    if (file) {
+      collection.image = getFileUrl(req, file.filename, 'collections');
+    }
+    if (order !== undefined) collection.order = order;
+    if (isActive !== undefined) collection.isActive = isActive === 'true' || isActive === true;
+
+    await collection.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Collection updated successfully',
+      data: collection
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Delete collection
+ * DELETE /api/admin/collections/:collectionId
+ */
+export const deleteCollection = async (req, res) => {
+  try {
+    const { collectionId } = req.params;
+
+    const collection = await Collection.findByIdAndDelete(collectionId);
+    if (!collection) {
+      return res.status(404).json({
+        success: false,
+        message: 'Collection not found'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Collection deleted successfully'
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Toggle collection status (Active/Inactive)
+ * PATCH /api/admin/collections/:collectionId/toggle
+ */
+export const toggleCollectionStatus = async (req, res) => {
+  try {
+    const { collectionId } = req.params;
+
+    const collection = await Collection.findById(collectionId);
+    if (!collection) {
+      return res.status(404).json({
+        success: false,
+        message: 'Collection not found'
+      });
+    }
+
+    collection.isActive = !collection.isActive;
+    await collection.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Collection ${collection.isActive ? 'activated' : 'deactivated'} successfully`,
+      data: collection
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// ==================== PRODUCT MANAGEMENT IN COLLECTIONS ====================
+
+/**
+ * Add product to collection
+ * POST /api/admin/collections/:collectionId/products
+ * Body: { productId: "product_id_here" }
+ */
+export const addProductToCollection = async (req, res) => {
+  try {
+    const { collectionId } = req.params;
+    const { productId } = req.body;
+
+    if (!productId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product ID is required'
+      });
+    }
+
+    // Check if collection exists
+    const collection = await Collection.findById(collectionId);
+    if (!collection) {
+      return res.status(404).json({
+        success: false,
+        message: 'Collection not found'
+      });
+    }
+
+    // Check if product exists
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
+    // Check if product already in collection
+    if (collection.products.includes(productId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product already in this collection'
+      });
+    }
+
+    // Add product to collection
+    collection.products.push(productId);
+    await collection.save();
+
+    const updatedCollection = await Collection.findById(collectionId)
+      .populate('products');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Product added to collection successfully',
+      data: updatedCollection
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Remove product from collection
+ * DELETE /api/admin/collections/:collectionId/products/:productId
+ */
+export const removeProductFromCollection = async (req, res) => {
+  try {
+    const { collectionId, productId } = req.params;
+
+    const collection = await Collection.findById(collectionId);
+    if (!collection) {
+      return res.status(404).json({
+        success: false,
+        message: 'Collection not found'
+      });
+    }
+
+    // Remove product from collection
+    collection.products = collection.products.filter(
+      id => id.toString() !== productId
+    );
+    await collection.save();
+
+    const updatedCollection = await Collection.findById(collectionId)
+      .populate('products');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Product removed from collection successfully',
+      data: updatedCollection
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Get all products in a collection (Admin)
+ * GET /api/admin/collections/:collectionId/products
+ */
+export const getCollectionProducts = async (req, res) => {
+  try {
+    const { collectionId } = req.params;
+
+    const collection = await Collection.findById(collectionId)
+      .populate('products');
+
+    if (!collection) {
+      return res.status(404).json({
+        success: false,
+        message: 'Collection not found'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      count: collection.products.length,
+      data: collection.products
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Add multiple products to collection
+ * POST /api/admin/collections/:collectionId/products/bulk
+ * Body: { productIds: ["id1", "id2", "id3"] }
+ */
+export const addMultipleProductsToCollection = async (req, res) => {
+  try {
+    const { collectionId } = req.params;
+    const { productIds } = req.body;
+
+    if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product IDs array is required'
+      });
+    }
+
+    const collection = await Collection.findById(collectionId);
+    if (!collection) {
+      return res.status(404).json({
+        success: false,
+        message: 'Collection not found'
+      });
+    }
+
+    // Verify all products exist
+    const products = await Product.find({ _id: { $in: productIds } });
+    if (products.length !== productIds.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'One or more products not found'
+      });
+    }
+
+    // Add only new products (avoid duplicates)
+    const newProducts = productIds.filter(
+      id => !collection.products.includes(id)
+    );
+
+    collection.products.push(...newProducts);
+    await collection.save();
+
+    const updatedCollection = await Collection.findById(collectionId)
+      .populate('products');
+
+    return res.status(200).json({
+      success: true,
+      message: `${newProducts.length} products added to collection`,
+      data: updatedCollection
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// ==================== HOMEPAGE COLLECTION MANAGEMENT ====================
+
+/**
+ * Add collection to homepage
+ * POST /api/admin/homepage/collections
+ * Body: { collectionId, order }
+ */
+export const addCollectionToHomepage = async (req, res) => {
+  try {
+    const { collectionId, order } = req.body;
+
+    if (!collectionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Collection ID is required'
+      });
+    }
+
+    // Check if collection exists
+    const collection = await Collection.findById(collectionId);
+    if (!collection) {
+      return res.status(404).json({
+        success: false,
+        message: 'Collection not found'
+      });
+    }
+
+    // Find or create homepage
+    let homepage = await HomePage.findOne();
+    if (!homepage) {
+      homepage = new HomePage({
+        heroSections: [],
+        banners: [],
+        homepageCollections: []
+      });
+    }
+
+    // Check if collection already exists in homepage
+    const alreadyExists = homepage.homepageCollections.some(
+      item => item.collectionId.toString() === collectionId
+    );
+
+    if (alreadyExists) {
+      return res.status(400).json({
+        success: false,
+        message: 'Collection already added to homepage'
+      });
+    }
+
+    // Add collection to homepage
+    homepage.homepageCollections.push({
+      collectionId,
+      order: order !== undefined ? order : homepage.homepageCollections.length,
+      isActive: true
+    });
+
+    await homepage.save();
+
+    // Populate the newly added collection
+    const updatedHomepage = await HomePage.findById(homepage._id)
+      .populate({
+        path: 'homepageCollections.collectionId',
+        populate: {
+          path: 'products',
+          model: 'Product'
+        }
+      });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Collection added to homepage successfully',
+      data: updatedHomepage.homepageCollections
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Remove collection from homepage
+ * DELETE /api/admin/homepage/collections/:collectionId
+ */
+export const removeCollectionFromHomepage = async (req, res) => {
+  try {
+    const { collectionId } = req.params;
+
+    const homepage = await HomePage.findOne();
+    if (!homepage) {
+      return res.status(404).json({
+        success: false,
+        message: 'Homepage not found'
+      });
+    }
+
+    // Check if collection exists in homepage
+    const exists = homepage.homepageCollections.some(
+      item => item.collectionId.toString() === collectionId
+    );
+
+    if (!exists) {
+      return res.status(404).json({
+        success: false,
+        message: 'Collection not found in homepage'
+      });
+    }
+
+    // Remove collection from array
+    homepage.homepageCollections = homepage.homepageCollections.filter(
+      item => item.collectionId.toString() !== collectionId
+    );
+
+    await homepage.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Collection removed from homepage successfully'
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Update collection order on homepage
+ * PUT /api/admin/homepage/collections/reorder
+ * Body: { collections: [{ collectionId, order }] }
+ */
+export const reorderHomepageCollections = async (req, res) => {
+  try {
+    const { collections } = req.body;
+
+    if (!collections || !Array.isArray(collections)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Collections array is required'
+      });
+    }
+
+    const homepage = await HomePage.findOne();
+    if (!homepage) {
+      return res.status(404).json({
+        success: false,
+        message: 'Homepage not found'
+      });
+    }
+
+    // Update order for each collection
+    collections.forEach(({ collectionId, order }) => {
+      const collectionItem = homepage.homepageCollections.find(
+        item => item.collectionId.toString() === collectionId
+      );
+      if (collectionItem) {
+        collectionItem.order = order;
+      }
+    });
+
+    // Sort the array based on order
+    homepage.homepageCollections.sort((a, b) => a.order - b.order);
+
+    await homepage.save();
+
+    // Populate updated data
+    const updatedHomepage = await HomePage.findById(homepage._id)
+      .populate({
+        path: 'homepageCollections.collectionId',
+        populate: {
+          path: 'products',
+          model: 'Product'
+        }
+      });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Collections reordered successfully',
+      data: updatedHomepage.homepageCollections
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Toggle collection visibility on homepage
+ * PATCH /api/admin/homepage/collections/:collectionId/toggle
+ */
+export const toggleHomepageCollection = async (req, res) => {
+  try {
+    const { collectionId } = req.params;
+
+    const homepage = await HomePage.findOne();
+    if (!homepage) {
+      return res.status(404).json({
+        success: false,
+        message: 'Homepage not found'
+      });
+    }
+
+    // Find the collection in array
+    const collectionItem = homepage.homepageCollections.find(
+      item => item.collectionId.toString() === collectionId
+    );
+
+    if (!collectionItem) {
+      return res.status(404).json({
+        success: false,
+        message: 'Collection not found in homepage'
+      });
+    }
+
+    // Toggle isActive status
+    collectionItem.isActive = !collectionItem.isActive;
+
+    await homepage.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Collection ${collectionItem.isActive ? 'activated' : 'deactivated'} on homepage`,
+      data: {
+        collectionId: collectionItem.collectionId,
+        isActive: collectionItem.isActive
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+/**
+ * Get all homepage collections (for admin)
+ * GET /api/admin/homepage/collections
+ */
+export const getHomepageCollections = async (req, res) => {
+  try {
+    const homepage = await HomePage.findOne();
+    
+    if (!homepage || homepage.homepageCollections.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        data: []
+      });
+    }
+
+    // Populate collection details with products
+    const populatedHomepage = await HomePage.findById(homepage._id)
+      .populate({
+        path: 'homepageCollections.collectionId',
+        populate: {
+          path: 'products',
+          model: 'Product'
+        }
+      });
+
+    // Sort by order
+    const sortedCollections = populatedHomepage.homepageCollections.sort(
+      (a, b) => a.order - b.order
+    );
+
+    return res.status(200).json({
+      success: true,
+      count: sortedCollections.length,
+      data: sortedCollections
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };

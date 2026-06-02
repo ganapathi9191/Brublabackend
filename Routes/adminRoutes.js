@@ -2,7 +2,7 @@
 // routes/adminRoutes.js
 import express from 'express';
 import User from '../Models/User.js';
-import { upload, uploadProductMedia, uploadMultipleImages, uploadLoginMedia, uploadSingleImage, uploadHeroMedia } from '../config/multerConfig.js';
+import { upload, uploadProductMedia, uploadMultipleImages, uploadLoginMedia, uploadSingleImage, uploadHeroMedia, uploadHomepageBanner } from '../config/multerConfig.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 
 import {
@@ -73,7 +73,26 @@ import {
   getBannerSectionById,
   updateBannerSection,
   deleteBannerSection,
-  toggleBannerSection
+  toggleBannerSection,
+
+  // Collection Management
+  createCollection,
+  getAllCollections,
+  getCollectionById,
+  updateCollection,
+  deleteCollection,
+  toggleCollectionStatus,
+  addProductToCollection,
+  removeProductFromCollection,
+  getCollectionProducts,
+  addMultipleProductsToCollection,
+
+  //Homepage Collection Management
+  addCollectionToHomepage,
+  removeCollectionFromHomepage,
+  reorderHomepageCollections,
+  toggleHomepageCollection,
+  getHomepageCollections
 } from '../Controller/adminController.js';
 
 const router = express.Router();
@@ -149,11 +168,33 @@ router.delete('/homepage/hero/:heroId', deleteHeroSection);
 router.patch('/homepage/hero/:heroId/toggle', toggleHeroSection);
 
 // Banner Section Routes
-router.post('/homepage/banner/add', uploadHeroMedia, addBannerSection);
+router.post('/homepage/banner/add', uploadHomepageBanner, addBannerSection);
 router.get('/homepage/banner', getBannerSections);
 router.get('/homepage/banner/:bannerId', getBannerSectionById);
-router.put('/homepage/banner/:bannerId', uploadHeroMedia, updateBannerSection);
+router.put('/homepage/banner/:bannerId', uploadHomepageBanner, updateBannerSection);
 router.delete('/homepage/banner/:bannerId', deleteBannerSection);
 router.patch('/homepage/banner/:bannerId/toggle', toggleBannerSection);
+
+// ==================== COLLECTION MANAGEMENT ====================
+// Collection CRUD
+router.post('/collections', uploadSingleImage, createCollection);
+router.get('/collections', getAllCollections);
+router.get('/collections/:collectionId', getCollectionById);
+router.put('/collections/:collectionId', uploadSingleImage, updateCollection);
+router.delete('/collections/:collectionId', deleteCollection);
+router.patch('/collections/:collectionId/toggle', toggleCollectionStatus);
+
+// Product management
+router.get('/collections/:collectionId/products', getCollectionProducts);
+router.post('/collections/:collectionId/products', addProductToCollection);
+router.post('/collections/:collectionId/products/bulk', addMultipleProductsToCollection);
+router.delete('/collections/:collectionId/products/:productId', removeProductFromCollection);
+
+// ==================== HOMEPAGE COLLECTION MANAGEMENT ====================
+router.post('/homepage/collections', addCollectionToHomepage);
+router.delete('/homepage/collections/:collectionId', removeCollectionFromHomepage);
+router.put('/homepage/collections/reorder', reorderHomepageCollections);
+router.patch('/homepage/collections/:collectionId/toggle', toggleHomepageCollection);
+router.get('/homepage/collections', getHomepageCollections);
 
 export default router;

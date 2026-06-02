@@ -5,12 +5,12 @@ import mongoose from 'mongoose';
 const heroSectionSchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: ['image', 'video', 'url'],
+    enum: ['image', 'video', 'youtube'],
     required: true
   },
   filename: {
     type: String,
-    required: true
+    default: null
   },
   url: {
     type: String,
@@ -38,10 +38,10 @@ const bannerSectionSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
-  tags: [{
+  tag: {
     type: String,
     trim: true
-  }],
+  },
   buttonText: {
     type: String,
     default: 'Shop Now'
@@ -62,10 +62,29 @@ const bannerSectionSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Homepage Collections Schema
+const homepageCollectionSchema = new mongoose.Schema({
+  collectionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Collection',
+    required: true
+  },
+  order: {
+    type: Number,
+    default: 0
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  }
+});
+
+
 // Main Home Page Schema
 const homePageSchema = new mongoose.Schema({
   heroSections: [heroSectionSchema],
-  banners: [bannerSectionSchema]
+  banners: [bannerSectionSchema],
+  homepageCollections: [homepageCollectionSchema]
 }, {
   timestamps: true
 });

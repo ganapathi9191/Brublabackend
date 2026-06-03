@@ -2,7 +2,7 @@
 // routes/adminRoutes.js
 import express from 'express';
 import User from '../Models/User.js';
-import { upload, uploadProductMedia, uploadMultipleImages, uploadLoginMedia, uploadSingleImage, uploadHeroMedia, uploadHomepageBanner } from '../config/multerConfig.js';
+import { upload, uploadProductMedia, uploadMultipleImages, uploadLoginMedia, uploadSingleImage, uploadHeroMedia, uploadHomepageBanner,uploadCollectionImage } from '../config/multerConfig.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 
 import {
@@ -92,7 +92,13 @@ import {
   removeCollectionFromHomepage,
   reorderHomepageCollections,
   toggleHomepageCollection,
-  getHomepageCollections
+  getHomepageCollections,
+
+  // Recommended Products
+  addRecommendedProducts,
+  getRecommendedProducts,
+  deleteRecommendedProducts,
+  toggleRecommendedProduct
 } from '../Controller/adminController.js';
 
 const router = express.Router();
@@ -177,10 +183,10 @@ router.patch('/homepage/banner/:bannerId/toggle', toggleBannerSection);
 
 // ==================== COLLECTION MANAGEMENT ====================
 // Collection CRUD
-router.post('/collections', uploadSingleImage, createCollection);
+router.post('/collections', uploadCollectionImage, createCollection);
 router.get('/collections', getAllCollections);
 router.get('/collections/:collectionId', getCollectionById);
-router.put('/collections/:collectionId', uploadSingleImage, updateCollection);
+router.put('/collections/:collectionId', uploadCollectionImage, updateCollection);
 router.delete('/collections/:collectionId', deleteCollection);
 router.patch('/collections/:collectionId/toggle', toggleCollectionStatus);
 
@@ -196,5 +202,11 @@ router.delete('/homepage/collections/:collectionId', removeCollectionFromHomepag
 router.put('/homepage/collections/reorder', reorderHomepageCollections);
 router.patch('/homepage/collections/:collectionId/toggle', toggleHomepageCollection);
 router.get('/homepage/collections', getHomepageCollections);
+
+// ==================== RECOMMENDED PRODUCTS ====================
+router.post('/recommended/add', addRecommendedProducts);
+router.get('/recommended', getRecommendedProducts);
+router.delete('/recommended/remove', deleteRecommendedProducts);
+router.patch('/recommended/:id/toggle', toggleRecommendedProduct);
 
 export default router;

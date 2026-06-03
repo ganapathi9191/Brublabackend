@@ -582,25 +582,32 @@ productSchema.methods.reduceStock = function(variantIndex, sizeIndex, quantity =
 
 // Virtuals
 productSchema.virtual('availableColors').get(function() {
-  return this.variants.filter(v => v.isActive).map(v => v.color);
+  if (!this.variants || !Array.isArray(this.variants)) return [];
+  return [...new Set(this.variants.filter(v => v && v.stock > 0).map(v => v.color))];
 });
 
 productSchema.virtual('availableSizes').get(function() {
+  if (!this.variants || !Array.isArray(this.variants)) return [];
   const sizesSet = new Set();
   this.variants.forEach(variant => {
-    variant.sizes.forEach(size => {
-      if (size.stock > 0) sizesSet.add(size.size);
-    });
+    if (variant && variant.sizes && Array.isArray(variant.sizes)) {
+      variant.sizes.forEach(size => {
+        if (size && size.stock > 0) sizesSet.add(size.size);
+      });
+    }
   });
   return [...sizesSet];
 });
 
 productSchema.virtual('totalStock').get(function() {
+  if (!this.variants || !Array.isArray(this.variants)) return 0;
   let total = 0;
   this.variants.forEach(variant => {
-    variant.sizes.forEach(size => {
-      total += size.stock;
-    });
+    if (variant && variant.sizes && Array.isArray(variant.sizes)) {
+      variant.sizes.forEach(size => {
+        if (size && size.stock) total += size.stock;
+      });
+    }
   });
   return total;
 });

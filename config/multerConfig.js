@@ -44,6 +44,19 @@ const productImageStorage = multer.diskStorage({
   }
 });
 
+const collectionImageStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const folder = 'uploads/collections';
+    ensureDirectoryExists(folder);
+    cb(null, folder);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, 'collection-' + uniqueSuffix + ext);
+  }
+});
+
 // Configure storage for product images (separate folder - legacy)
 const productImageOnlyStorage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -287,6 +300,11 @@ export const upload = multer({
   fileFilter: imageFilter
 });
 
+export const uploadCollectionImage = multer({
+  storage: collectionImageStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: imageFilter
+}).single('image');
 
 // config/multerConfig.js - Add this
 const loginScreenStorage = multer.diskStorage({

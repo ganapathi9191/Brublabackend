@@ -42,7 +42,9 @@ import {
   getUserCollectionById,
 
   //HomePage Collection
-  getHomepageCollections
+  getHomepageCollections,
+
+  getRecommendedProducts
 } from '../Controller/UserController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { upload } from '../config/multerConfig.js';
@@ -80,6 +82,9 @@ router.get('/collections/:collectionId', getUserCollectionById);
 
 //Home Page Collection
 router.get('/homepage/collections', getHomepageCollections);
+
+// Recommended products
+router.get('/recommended', getRecommendedProducts);
 
 // Profile routes (no authentication)
 router.get('/:userId', getUserById);

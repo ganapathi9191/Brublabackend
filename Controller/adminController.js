@@ -3531,6 +3531,9 @@ export const removeCollectionFromHomepage = async (req, res) => {
       item => item.collectionId.toString() === collectionId
     );
 
+    console.log('Homepage Collections:', homepage.homepageCollections);
+    console.log('Checking for Collection ID:', collectionId, 'Exists:', exists);
+
     if (!exists) {
       return res.status(404).json({
         success: false,

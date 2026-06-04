@@ -46,7 +46,9 @@ import {
 
   getRecommendedProducts,
 
-  getActiveLatestDesigns
+  getActiveLatestDesigns,
+  getFullMenu,
+  searchProducts
 } from '../Controller/UserController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { upload } from '../config/multerConfig.js';
@@ -90,6 +92,10 @@ router.get('/recommended', getRecommendedProducts);
 
 // Latest designs
 router.get('/latest', getActiveLatestDesigns);
+
+//Menu & Search routes
+router.get('/search', searchProducts);
+router.get('/menu', getFullMenu);
 
 // Profile routes (no authentication)
 router.get('/:userId', getUserById);

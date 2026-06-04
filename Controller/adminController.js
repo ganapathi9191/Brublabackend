@@ -1198,6 +1198,76 @@ export const createProduct = async (req, res) => {
   }
 };
 // Get All Products
+// export const getAllProducts = async (req, res) => {
+//   try {
+//     const {
+//       categoryId,
+//       subcategoryId,
+//       isActive,
+//       minPrice,
+//       maxPrice,
+//       sortBy,
+//       page = 1,
+//       limit = 20
+//     } = req.query;
+
+//     let query = {};
+
+//     // Apply filters
+//     if (categoryId) query.categoryId = categoryId;
+//     if (subcategoryId) query.subcategoryId = subcategoryId;
+//     if (isActive !== undefined) query.isActive = isActive === 'true';
+    
+//     // Price filter
+//     if (minPrice || maxPrice) {
+//       query.displayPrice = {};
+//       if (minPrice) query.displayPrice.$gte = parseFloat(minPrice);
+//       if (maxPrice) query.displayPrice.$lte = parseFloat(maxPrice);
+//     }
+
+//     // Pagination
+//     const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+//     // Sorting
+//     let sort = {};
+//     if (sortBy === 'price_asc') sort.displayPrice = 1;
+//     else if (sortBy === 'price_desc') sort.displayPrice = -1;
+//     else if (sortBy === 'rating_desc') sort.averageRating = -1;
+//     else if (sortBy === 'newest') sort.createdAt = -1;
+//     else sort.createdAt = -1;
+
+//     // Approval filter for public users
+//     if (!req.user || req.user.role !== 'admin') {
+//       query.approvalStatus = { $in: ['approved', 'not_required'] };
+//       query.isActive = true;
+//     }
+
+//     const products = await Product.find(query)
+//       .populate('categoryId', 'name')
+//       .sort(sort)
+//       .skip(skip)
+//       .limit(parseInt(limit));
+
+//     const total = await Product.countDocuments(query);
+
+//     return res.status(200).json({
+//       success: true,
+//       count: products.length,
+//       total,
+//       page: parseInt(page),
+//       pages: Math.ceil(total / parseInt(limit)),
+//       products
+//     });
+
+//   } catch (error) {
+//     console.error('getAllProducts error:', error);
+//     return res.status(500).json({
+//       success: false,
+//       message: 'Internal server error'
+//     });
+//   }
+// };
+// Get All Products with Filters (Size, Color, Price, Category, Subcategory, etc.)
 export const getAllProducts = async (req, res) => {
   try {
     const {
@@ -1208,16 +1278,29 @@ export const getAllProducts = async (req, res) => {
       maxPrice,
       sortBy,
       page = 1,
-      limit = 20
+      limit = 20,
+      colors,
+      sizes,
+      search,
+      rating,
+      tags
     } = req.query;
 
     let query = {};
 
-    // Apply filters
-    if (categoryId) query.categoryId = categoryId;
-    if (subcategoryId) query.subcategoryId = subcategoryId;
+    // ✅ Apply category filter (works as query param)
+    if (categoryId) {
+      query.categoryId = categoryId;
+    }
+
+    // ✅ Apply subcategory filter (works as query param)
+    if (subcategoryId) {
+      query.subcategoryId = subcategoryId;
+    }
+
+    // Apply basic filters
     if (isActive !== undefined) query.isActive = isActive === 'true';
-    
+
     // Price filter
     if (minPrice || maxPrice) {
       query.displayPrice = {};
@@ -1225,22 +1308,54 @@ export const getAllProducts = async (req, res) => {
       if (maxPrice) query.displayPrice.$lte = parseFloat(maxPrice);
     }
 
-    // Pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    // Sorting
-    let sort = {};
-    if (sortBy === 'price_asc') sort.displayPrice = 1;
-    else if (sortBy === 'price_desc') sort.displayPrice = -1;
-    else if (sortBy === 'rating_desc') sort.averageRating = -1;
-    else if (sortBy === 'newest') sort.createdAt = -1;
-    else sort.createdAt = -1;
+    // Color filter (search in variants array)
+    if (colors) {
+      const colorArray = colors.split(',');
+      query['variants.color'] = { $in: colorArray };
+    }
+
+    // Size filter (search in variants.sizes array)
+    if (sizes) {
+      const sizeArray = sizes.split(',');
+      query['variants.sizes.size'] = { $in: sizeArray };
+    }
+
+    // Rating filter
+    if (rating) {
+      query.averageRating = { $gte: parseFloat(rating) };
+    }
+
+    // Tags filter
+    if (tags) {
+      const tagsArray = tags.split(',');
+      query.tags = { $in: tagsArray };
+    }
+
+    // Search filter (text search on name and description)
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
 
     // Approval filter for public users
     if (!req.user || req.user.role !== 'admin') {
       query.approvalStatus = { $in: ['approved', 'not_required'] };
       query.isActive = true;
     }
+
+    // Pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Sorting
+    let sort = {};
+    if (sortBy === 'price_asc') sort.displayPrice = 1;
+    else if (sortBy === 'price_desc') sort.displayPrice = -1;
+    else if (sortBy === 'rating_desc') sort.averageRating = -1;
+    else if (sortBy === 'popularity') sort.totalSold = -1;
+    else if (sortBy === 'newest') sort.createdAt = -1;
+    else sort.createdAt = -1;
 
     const products = await Product.find(query)
       .populate('categoryId', 'name')
@@ -1250,12 +1365,56 @@ export const getAllProducts = async (req, res) => {
 
     const total = await Product.countDocuments(query);
 
+    // Get unique colors and sizes from filtered products for filter UI
+    let allColors = [];
+    let allSizes = [];
+    let priceRange = { min: 0, max: 0 };
+
+    if (products.length > 0) {
+      // Get price range from filtered products
+      const priceStats = await Product.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: null,
+            minPrice: { $min: '$displayPrice' },
+            maxPrice: { $max: '$displayPrice' }
+          }
+        }
+      ]);
+      if (priceStats.length > 0) {
+        priceRange = { min: priceStats[0].minPrice, max: priceStats[0].maxPrice };
+      }
+
+      // Get unique colors from filtered products
+      const colorResults = await Product.aggregate([
+        { $match: query },
+        { $unwind: '$variants' },
+        { $group: { _id: '$variants.color' } }
+      ]);
+      allColors = colorResults.map(c => c._id).filter(c => c);
+
+      // Get unique sizes from filtered products
+      const sizeResults = await Product.aggregate([
+        { $match: query },
+        { $unwind: '$variants' },
+        { $unwind: '$variants.sizes' },
+        { $group: { _id: '$variants.sizes.size' } }
+      ]);
+      allSizes = sizeResults.map(s => s._id).filter(s => s);
+    }
+
     return res.status(200).json({
       success: true,
       count: products.length,
       total,
       page: parseInt(page),
       pages: Math.ceil(total / parseInt(limit)),
+      filters: {
+        colors: allColors,
+        sizes: allSizes,
+        priceRange
+      },
       products
     });
 

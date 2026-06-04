@@ -4,6 +4,7 @@ import Order from '../Models/Order.js';
 import RecommendedProduct from '../Models/RecommendedProducts.js';
 import LoginScreenMedia from '../Models/LoginScreenMedia.js';
 import Collection from '../Models/Collection.js';
+import LatestDesign from '../Models/LatestDesign.js';
 import { getFileUrl, deleteFile } from '../utils/fileUtils.js';
 import Product from '../Models/Product.js';
 import jwt from 'jsonwebtoken';
@@ -2058,6 +2059,57 @@ export const getRecommendedProducts = async (req, res) => {
 
   } catch (error) {
     console.error('getRecommendedProducts error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+// Controller/userLatestDesignController.js
+
+export const getActiveLatestDesigns = async (req, res) => {
+  try {
+    const { limit = 20 } = req.query;
+
+    const latestDesigns = await LatestDesign.find({ isActive: true })
+      .populate({
+        path: 'productId',
+        select: 'name description displayPrice displayActualPrice maxDiscount mainImages variants averageRating isActive',
+        match: { isActive: true }
+      })
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit));
+
+    const products = latestDesigns
+      .filter(item => item.productId !== null)
+      .map(item => {
+        const product = item.productId;
+        if (!product || product.isActive === false) return null;
+        const firstVariant = product.variants?.[0];
+        const mainImage = firstVariant?.images?.[0] || product.mainImages?.[0] || null;
+        return {
+          _id: product._id,
+          name: product.name,
+          description: product.description,
+          displayPrice: product.displayPrice,
+          displayActualPrice: product.displayActualPrice,
+          maxDiscount: product.maxDiscount,
+          mainImage: mainImage,
+          averageRating: product.averageRating || 0
+        };
+      })
+      .filter(p => p !== null);
+
+    return res.status(200).json({
+      success: true,
+      count: products.length,
+      data: products
+    });
+
+  } catch (error) {
+    console.error('getActiveLatestDesigns error:', error);
     return res.status(500).json({
       success: false,
       message: error.message

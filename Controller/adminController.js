@@ -5,6 +5,7 @@ import User from '../Models/User.js';
 import Collection from '../Models/Collection.js';
 import Product from '../Models/Product.js';
 import RecommendedProduct from '../Models/RecommendedProducts.js';
+import LatestDesign from '../Models/LatestDesign.js';
 import Order from '../Models/Order.js';
 import Banner from '../Models/Banner.js';
 import Category from '../Models/Category.js';
@@ -3919,6 +3920,213 @@ export const toggleRecommendedProduct = async (req, res) => {
 
   } catch (error) {
     console.error('toggleRecommendedProduct error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== LATEST DESIGNS ====================
+
+
+export const addLatestDesigns = async (req, res) => {
+  try {
+    const { productId, productIds } = req.body;
+
+    let ids = [];
+    if (productId) {
+      ids = [productId.toString().trim()];
+    } else if (productIds && Array.isArray(productIds)) {
+      ids = productIds.map(id => id.toString().trim());
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide either "productId" (single) or "productIds" array (multiple)'
+      });
+    }
+
+    if (ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one product ID is required'
+      });
+    }
+
+    const results = {
+      added: [],
+      failed: [],
+      skipped: []
+    };
+
+    for (const id of ids) {
+      if (!id) {
+        results.failed.push({ productId: id, reason: 'Product ID missing' });
+        continue;
+      }
+
+      const product = await Product.findById(id).lean();
+      if (!product) {
+        results.failed.push({ productId: id, reason: 'Product not found' });
+        continue;
+      }
+
+      const existing = await LatestDesign.findOne({ productId: id });
+      if (existing) {
+        results.skipped.push({ productId: id, reason: 'Already in latest design collection' });
+        continue;
+      }
+
+      const latestDesign = new LatestDesign({
+        productId: id,
+        isActive: true
+      });
+
+      await latestDesign.save();
+      results.added.push(latestDesign);
+    }
+
+    const isSingle = ids.length === 1;
+    let message = '';
+    if (isSingle) {
+      if (results.added.length === 1) {
+        message = 'Product added to latest design collection';
+      } else if (results.skipped.length === 1) {
+        message = 'Product already in latest design collection';
+      } else {
+        message = 'Failed to add product';
+      }
+    } else {
+      message = `${results.added.length} products added, ${results.skipped.length} skipped, ${results.failed.length} failed`;
+    }
+
+    return res.status(201).json({
+      success: results.added.length > 0,
+      message,
+      data: isSingle ? (results.added[0] || null) : results
+    });
+
+  } catch (error) {
+    console.error('addLatestDesigns error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const deleteLatestDesigns = async (req, res) => {
+  try {
+    const { id, ids, productId, productIds } = req.body;
+
+    let latestDesignIds = [];
+
+    if (id) {
+      latestDesignIds = [id];
+    } else if (ids && Array.isArray(ids)) {
+      latestDesignIds = ids;
+    } else if (productId) {
+      const latestDesign = await LatestDesign.findOne({ productId });
+      if (latestDesign) {
+        latestDesignIds = [latestDesign._id];
+      }
+    } else if (productIds && Array.isArray(productIds)) {
+      const latestDesigns = await LatestDesign.find({ productId: { $in: productIds } });
+      latestDesignIds = latestDesigns.map(item => item._id);
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide "id", "ids", "productId", or "productIds"'
+      });
+    }
+
+    if (latestDesignIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No valid latest design products found to delete'
+      });
+    }
+
+    const result = await LatestDesign.deleteMany({ _id: { $in: latestDesignIds } });
+
+    const isSingle = latestDesignIds.length === 1;
+    const message = isSingle 
+      ? 'Product removed from latest design collection'
+      : `${result.deletedCount} products removed from latest design collection`;
+
+    return res.status(200).json({
+      success: true,
+      message,
+      deletedCount: result.deletedCount
+    });
+
+  } catch (error) {
+    console.error('deleteLatestDesigns error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getLatestDesignsAdmin = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, isActive } = req.query;
+
+    let query = {};
+    if (isActive !== undefined) {
+      query.isActive = isActive === 'true';
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const latestDesigns = await LatestDesign.find(query)
+      .populate({
+        path: 'productId',
+        select: 'name description displayPrice displayActualPrice maxDiscount mainImages variants averageRating'
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await LatestDesign.countDocuments(query);
+
+    const products = latestDesigns.map(item => ({
+      _id: item._id,
+      product: item.productId,
+      isActive: item.isActive,
+      addedAt: item.createdAt
+    }));
+
+    return res.status(200).json({
+      success: true,
+      count: products.length,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / parseInt(limit)),
+      data: products
+    });
+
+  } catch (error) {
+    console.error('getLatestDesignsAdmin error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const toggleLatestDesign = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const latestDesign = await LatestDesign.findById(id);
+    if (!latestDesign) {
+      return res.status(404).json({
+        success: false,
+        message: 'Latest design product not found'
+      });
+    }
+
+    latestDesign.isActive = !latestDesign.isActive;
+    await latestDesign.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Latest design product ${latestDesign.isActive ? 'activated' : 'deactivated'}`,
+      data: latestDesign
+    });
+
+  } catch (error) {
+    console.error('toggleLatestDesign error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

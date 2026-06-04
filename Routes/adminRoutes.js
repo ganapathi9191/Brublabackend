@@ -98,7 +98,13 @@ import {
   addRecommendedProducts,
   getRecommendedProducts,
   deleteRecommendedProducts,
-  toggleRecommendedProduct
+  toggleRecommendedProduct,
+
+  // Latest Designs
+  addLatestDesigns,
+  getLatestDesignsAdmin,
+  deleteLatestDesigns,
+  toggleLatestDesign
 } from '../Controller/adminController.js';
 
 const router = express.Router();
@@ -208,5 +214,11 @@ router.post('/recommended/add', addRecommendedProducts);
 router.get('/recommended', getRecommendedProducts);
 router.delete('/recommended/remove', deleteRecommendedProducts);
 router.patch('/recommended/:id/toggle', toggleRecommendedProduct);
+
+// ==================== LATEST DESIGNS ====================
+router.post('/latest/add', addLatestDesigns);
+router.get('/latest', getLatestDesignsAdmin);
+router.delete('/latest/remove', deleteLatestDesigns);
+router.patch('/latest/:id/toggle', toggleLatestDesign);
 
 export default router;

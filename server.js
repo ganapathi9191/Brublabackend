@@ -34,7 +34,13 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ✅ CORS
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://31.97.206.144:7686', 'https://vidya-enrolldeleteurl.vercel.app' , '**',"*","http://192.168.1.13:3000","http://localhost:3001 "],
+  origin: ['http://localhost:3000', 'http://31.97.206.144:7686',
+     'https://vidya-enrolldeleteurl.vercel.app' ,
+      '**',"*","http://192.168.1.13:3000","http://localhost:3001", 
+      "https://brubla-web.onrender.com",
+      "https://brubla.onrender.com",
+      "https://brubla-admin.onrender.com"
+    ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   credentials: true
 }));

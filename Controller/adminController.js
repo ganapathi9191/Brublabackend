@@ -3,7 +3,9 @@ import LoginScreenMedia from '../Models/LoginScreenMedia.js';
 import HomePage from '../Models/HomePage.js';
 import User from '../Models/User.js';
 import Collection from '../Models/Collection.js';
+import NotificationLabel from '../Models/NotificationLabel.js';
 import Product from '../Models/Product.js';
+import UpcomingCollection from '../Models/UpcomingCollection.js';
 import RecommendedProduct from '../Models/RecommendedProducts.js';
 import LatestDesign from '../Models/LatestDesign.js';
 import Order from '../Models/Order.js';
@@ -4287,5 +4289,545 @@ export const toggleLatestDesign = async (req, res) => {
   } catch (error) {
     console.error('toggleLatestDesign error:', error);
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+// ==================== UPCOMING COLLECTIONS ====================
+
+
+// Admin: Add collection to upcoming
+export const addUpcomingCollection = async (req, res) => {
+  try {
+    const { collectionId, goLiveDateTime } = req.body;
+
+    console.log('Request body:', req.body);
+    console.log('User from token:', req.user);
+
+    if (!collectionId || !goLiveDateTime) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Collection ID and goLiveDateTime are required' 
+      });
+    }
+
+    // Check if collection exists
+    const collection = await Collection.findById(collectionId);
+    if (!collection) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Collection not found' 
+      });
+    }
+
+    // Check if already added
+    const existing = await UpcomingCollection.findOne({ 
+      collectionId, 
+      isActive: true 
+    });
+    
+    if (existing) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Collection already in upcoming section' 
+      });
+    }
+
+    // Create upcoming entry - handle createdBy safely
+    const upcomingData = {
+      collectionId,
+      goLiveDateTime: new Date(goLiveDateTime)
+    };
+    
+    // Only add createdBy if user exists
+    if (req.user && req.user.id) {
+      upcomingData.createdBy = req.user.id;
+    }
+
+    const upcoming = new UpcomingCollection(upcomingData);
+    await upcoming.save();
+
+    // Populate collection details
+    const populated = await UpcomingCollection.findById(upcoming._id)
+      .populate('collectionId');
+
+    return res.status(201).json({
+      success: true,
+      message: 'Collection added to upcoming section',
+      data: populated
+    });
+
+  } catch (error) {
+    console.error('addUpcomingCollection error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+};
+
+// Admin: Get all upcoming collections
+export const getAllUpcomingCollections = async (req, res) => {
+  try {
+    const { status, page = 1, limit = 20 } = req.query;
+    
+    let query = { isActive: true };
+    if (status === 'upcoming') {
+      query.goLiveDateTime = { $gt: new Date() };
+    } else if (status === 'expired') {
+      query.goLiveDateTime = { $lt: new Date() };
+    }
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const upcoming = await UpcomingCollection.find(query)
+      .populate('collectionId')
+      .populate('createdBy', 'name email')
+      .sort({ goLiveDateTime: 1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+    
+    const total = await UpcomingCollection.countDocuments(query);
+    
+    // Add status to each item
+    const now = new Date();
+    const dataWithStatus = upcoming.map(item => {
+      const obj = item.toObject();
+      obj.status = item.goLiveDateTime > now ? 'upcoming' : 'expired';
+      return obj;
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: dataWithStatus.length,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / parseInt(limit)),
+      data: dataWithStatus
+    });
+
+  } catch (error) {
+    console.error('getAllUpcomingCollections error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+};
+
+// Admin: Get single upcoming collection by ID
+export const getUpcomingCollectionById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const upcoming = await UpcomingCollection.findById(id)
+      .populate('collectionId')
+      .populate('createdBy', 'name email');
+    
+    if (!upcoming) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Upcoming collection not found' 
+      });
+    }
+    
+    const now = new Date();
+    const status = upcoming.goLiveDateTime > now ? 'upcoming' : 'expired';
+    
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...upcoming.toObject(),
+        status
+      }
+    });
+    
+  } catch (error) {
+    console.error('getUpcomingCollectionById error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+};
+
+// Admin: Update upcoming collection
+export const updateUpcomingCollection = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { collectionId, goLiveDateTime } = req.body;
+    
+    const upcoming = await UpcomingCollection.findById(id);
+    if (!upcoming) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Upcoming collection not found' 
+      });
+    }
+    
+    if (collectionId) {
+      const collection = await Collection.findById(collectionId);
+      if (!collection) {
+        return res.status(404).json({ 
+          success: false, 
+          message: 'Collection not found' 
+        });
+      }
+      upcoming.collectionId = collectionId;
+    }
+    
+    if (goLiveDateTime) {
+      upcoming.goLiveDateTime = new Date(goLiveDateTime);
+    }
+    
+    await upcoming.save();
+    
+    const populated = await UpcomingCollection.findById(id)
+      .populate('collectionId');
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Upcoming collection updated successfully',
+      data: populated
+    });
+    
+  } catch (error) {
+    console.error('updateUpcomingCollection error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+};
+
+// Admin: Remove from upcoming
+export const removeUpcomingCollection = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const upcoming = await UpcomingCollection.findByIdAndDelete(id);
+    if (!upcoming) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Upcoming collection not found' 
+      });
+    }
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Collection removed from upcoming section'
+    });
+
+  } catch (error) {
+    console.error('removeUpcomingCollection error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+};
+
+
+// ======================= Notification Label ====================
+
+// Admin: Add notifications
+export const addNotifications = async (req, res) => {
+  try {
+    const { notifications } = req.body;
+
+    if (!notifications || !Array.isArray(notifications) || notifications.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Notifications array is required'
+      });
+    }
+
+    let notificationDoc = await NotificationLabel.findOne();
+    
+    // Format notifications with text only (ID will be auto-generated)
+    const newNotifications = notifications.map(text => ({ text }));
+    
+    if (!notificationDoc) {
+      notificationDoc = new NotificationLabel({
+        notifications: newNotifications,
+        isActive: true
+      });
+    } else {
+      notificationDoc.notifications.push(...newNotifications);
+    }
+
+    await notificationDoc.save();
+
+    return res.status(201).json({
+      success: true,
+      message: `${notifications.length} notification(s) added successfully`,
+      data: notificationDoc
+    });
+
+  } catch (error) {
+    console.error('addNotifications error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Admin: Get all notifications
+export const getAllNotificationsAdmin = async (req, res) => {
+  try {
+    const notificationDoc = await NotificationLabel.findOne();
+    
+    if (!notificationDoc) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          notifications: [],
+          isActive: true,
+          count: 0
+        }
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        notifications: notificationDoc.notifications,
+        isActive: notificationDoc.isActive,
+        count: notificationDoc.notifications.length,
+        createdAt: notificationDoc.createdAt,
+        updatedAt: notificationDoc.updatedAt
+      }
+    });
+
+  } catch (error) {
+    console.error('getAllNotificationsAdmin error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Admin: Update notification by ID
+export const updateNotificationById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { text } = req.body;
+
+    if (!text) {
+      return res.status(400).json({
+        success: false,
+        message: 'Notification text is required'
+      });
+    }
+
+    const notificationDoc = await NotificationLabel.findOne();
+    
+    if (!notificationDoc) {
+      return res.status(404).json({
+        success: false,
+        message: 'No notifications found'
+      });
+    }
+
+    // Find notification by _id
+    const notification = notificationDoc.notifications.find(
+      n => n._id.toString() === id
+    );
+
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found'
+      });
+    }
+
+    const oldText = notification.text;
+    notification.text = text;
+    await notificationDoc.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Notification updated successfully',
+      data: {
+        id: notification._id,
+        oldText,
+        newText: text,
+        notifications: notificationDoc.notifications
+      }
+    });
+
+  } catch (error) {
+    console.error('updateNotificationById error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Admin: Delete notification by ID
+export const deleteNotificationById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const notificationDoc = await NotificationLabel.findOne();
+    
+    if (!notificationDoc) {
+      return res.status(404).json({
+        success: false,
+        message: 'No notifications found'
+      });
+    }
+
+    // Find notification by _id
+    const notificationIndex = notificationDoc.notifications.findIndex(
+      n => n._id.toString() === id
+    );
+
+    if (notificationIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found'
+      });
+    }
+
+    const deleted = notificationDoc.notifications[notificationIndex];
+    notificationDoc.notifications.splice(notificationIndex, 1);
+    await notificationDoc.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Notification "${deleted.text}" deleted successfully`,
+      data: {
+        deletedId: id,
+        deletedText: deleted.text,
+        remainingCount: notificationDoc.notifications.length,
+        notifications: notificationDoc.notifications
+      }
+    });
+
+  } catch (error) {
+    console.error('deleteNotificationById error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Admin: Toggle single notification by ID
+export const toggleNotificationById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const notificationDoc = await NotificationLabel.findOne();
+    
+    if (!notificationDoc) {
+      return res.status(404).json({
+        success: false,
+        message: 'No notifications found'
+      });
+    }
+
+    // Find notification by _id
+    const notification = notificationDoc.notifications.find(
+      n => n._id.toString() === id
+    );
+
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found'
+      });
+    }
+
+    notification.isActive = !notification.isActive;
+    await notificationDoc.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Notification "${notification.text}" ${notification.isActive ? 'activated' : 'deactivated'}`,
+      data: {
+        id: notification._id,
+        text: notification.text,
+        isActive: notification.isActive
+      }
+    });
+
+  } catch (error) {
+    console.error('toggleNotificationById error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Admin: Toggle entire section
+export const toggleSection = async (req, res) => {
+  try {
+    let notificationDoc = await NotificationLabel.findOne();
+    
+    if (!notificationDoc) {
+      notificationDoc = new NotificationLabel({
+        notifications: [],
+        isActive: true
+      });
+    }
+
+    notificationDoc.isActive = !notificationDoc.isActive;
+    await notificationDoc.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Notifications section ${notificationDoc.isActive ? 'enabled' : 'disabled'}`,
+      data: {
+        isActive: notificationDoc.isActive,
+        notifications: notificationDoc.notifications,
+        count: notificationDoc.notifications.length
+      }
+    });
+
+  } catch (error) {
+    console.error('toggleSection error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Admin: Clear all notifications
+export const clearAllNotifications = async (req, res) => {
+  try {
+    const notificationDoc = await NotificationLabel.findOne();
+    
+    if (!notificationDoc) {
+      return res.status(404).json({
+        success: false,
+        message: 'No notifications found'
+      });
+    }
+
+    notificationDoc.notifications = [];
+    await notificationDoc.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'All notifications cleared successfully',
+      data: {
+        notifications: [],
+        count: 0
+      }
+    });
+
+  } catch (error) {
+    console.error('clearAllNotifications error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };

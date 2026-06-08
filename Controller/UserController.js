@@ -2,9 +2,11 @@ import User from '../Models/User.js';
 import HomePage from '../Models/HomePage.js';
 import Order from '../Models/Order.js'; 
 import Category from '../Models/Category.js';
+import NotificationLabel from '../Models/NotificationLabel.js';
 import RecommendedProduct from '../Models/RecommendedProducts.js';
 import LoginScreenMedia from '../Models/LoginScreenMedia.js';
 import Collection from '../Models/Collection.js';
+import UpcomingCollection from '../Models/UpcomingCollection.js';
 import LatestDesign from '../Models/LatestDesign.js';
 import { getFileUrl, deleteFile } from '../utils/fileUtils.js';
 import Product from '../Models/Product.js';
@@ -3415,6 +3417,176 @@ export const searchProducts = async (req, res) => {
 
   } catch (error) {
     console.error('searchProducts error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+// ==================== UPCOMING COLLECTIONS ====================
+
+export const getUpcomingCollections = async (req, res) => {
+  try {
+    const now = new Date();
+    
+    const upcoming = await UpcomingCollection.find({
+      isActive: true,
+      goLiveDateTime: { $gt: now }
+    })
+      .populate('collectionId')
+      .sort({ goLiveDateTime: 1 });
+
+    const data = upcoming.map(item => {
+      const diff = item.goLiveDateTime - now;
+      
+      // Calculate countdown
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (86400000)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (3600000)) / (1000 * 60));
+      const seconds = Math.floor((diff % (60000)) / 1000);
+      
+      // Format date for display
+      const options = { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      };
+      
+      return {
+        id: item._id,
+        collection: {
+          id: item.collectionId._id,
+          title: item.collectionId.title,
+          tag: item.collectionId.tag,
+          description: item.collectionId.description,
+          image: item.collectionId.image,
+          isActive: item.collectionId.isActive
+        },
+        goLiveDateTime: item.goLiveDateTime,
+        formattedDate: item.goLiveDateTime.toLocaleDateString('en-US', options),
+        countdown: {
+          days,
+          hours,
+          minutes,
+          seconds,
+          total: diff
+        },
+        isExpired: false
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: data.length,
+      data: data
+    });
+
+  } catch (error) {
+    console.error('getUpcomingCollections error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+};
+
+// Public: Get single upcoming collection details with products
+export const getUpcomingCollectionDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const now = new Date();
+    
+    const upcoming = await UpcomingCollection.findById(id)
+      .populate({
+        path: 'collectionId',
+        populate: {
+          path: 'products',
+          model: 'Product',
+          match: { isActive: true }
+        }
+      });
+    
+    if (!upcoming) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Upcoming collection not found' 
+      });
+    }
+    
+    const isExpired = upcoming.goLiveDateTime < now;
+    const diff = upcoming.goLiveDateTime - now;
+    
+    const response = {
+      id: upcoming._id,
+      collection: {
+        id: upcoming.collectionId._id,
+        title: upcoming.collectionId.title,
+        tag: upcoming.collectionId.tag,
+        description: upcoming.collectionId.description,
+        image: upcoming.collectionId.image
+      },
+      goLiveDateTime: upcoming.goLiveDateTime,
+      isExpired,
+      products: isExpired ? upcoming.collectionId.products || [] : [],
+      productCount: isExpired ? (upcoming.collectionId.products?.length || 0) : 0,
+      countdown: isExpired ? null : {
+        days: Math.floor(diff / (1000 * 60 * 60 * 24)),
+        hours: Math.floor((diff % (86400000)) / (1000 * 60 * 60)),
+        minutes: Math.floor((diff % (3600000)) / (1000 * 60)),
+        seconds: Math.floor((diff % (60000)) / 1000)
+      }
+    };
+    
+    // If not expired, don't send products
+    if (!isExpired) {
+      delete response.products;
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: response
+    });
+    
+  } catch (error) {
+    console.error('getUpcomingCollectionDetails error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+};
+
+
+// ==================== Notifications Label ====================
+
+// User: Get active notifications only
+export const getActiveNotifications = async (req, res) => {
+  try {
+    const notificationDoc = await NotificationLabel.findOne();
+    
+    if (!notificationDoc || !notificationDoc.isActive || notificationDoc.notifications.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        isActive: false,
+        count: 0,
+        message: 'No active notifications'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: notificationDoc.notifications,
+      isActive: notificationDoc.isActive,
+      count: notificationDoc.notifications.length
+    });
+
+  } catch (error) {
+    console.error('getActiveNotifications error:', error);
     return res.status(500).json({
       success: false,
       message: error.message

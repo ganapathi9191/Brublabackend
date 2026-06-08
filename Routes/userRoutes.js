@@ -45,6 +45,10 @@ import {
   getHomepageCollections,
 
   getRecommendedProducts,
+  getActiveNotifications,
+
+  getUpcomingCollections,
+  getUpcomingCollectionDetails,
 
   getActiveLatestDesigns,
   getFullMenu,
@@ -96,6 +100,13 @@ router.get('/latest', getActiveLatestDesigns);
 //Menu & Search routes
 router.get('/search', searchProducts);
 router.get('/menu', getFullMenu);
+
+// NOtification label route
+router.get('/notificationlabels', getActiveNotifications);
+
+// Upcoming collections
+router.get('/upcoming', getUpcomingCollections);
+router.get('/upcoming/:id', getUpcomingCollectionDetails);
 
 // Profile routes (no authentication)
 router.get('/:userId', getUserById);

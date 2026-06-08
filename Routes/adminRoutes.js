@@ -2,7 +2,7 @@
 // routes/adminRoutes.js
 import express from 'express';
 import User from '../Models/User.js';
-import { upload, uploadProductMedia, uploadMultipleImages, uploadLoginMedia, uploadSingleImage, uploadHeroMedia, uploadHomepageBanner,uploadCollectionImage } from '../config/multerConfig.js';
+import { upload, uploadProductMedia, uploadMultipleImages, uploadSubcategoryImage, uploadLoginMedia, uploadSingleImage, uploadHeroMedia, uploadHomepageBanner,uploadCollectionImage } from '../config/multerConfig.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 
 import {
@@ -100,6 +100,22 @@ import {
   deleteRecommendedProducts,
   toggleRecommendedProduct,
 
+  // Notification Label
+  addNotifications,
+  getAllNotificationsAdmin,
+  updateNotificationById,
+  deleteNotificationById,
+  toggleNotificationById,
+  toggleSection,
+  
+
+  //upcoming Collections
+  addUpcomingCollection,
+  getAllUpcomingCollections,
+  getUpcomingCollectionById,
+  updateUpcomingCollection,
+  removeUpcomingCollection,
+
   // Latest Designs
   addLatestDesigns,
   getLatestDesignsAdmin,
@@ -135,10 +151,10 @@ router.put('/categories/:id', updateCategoryById); // No image upload needed
 router.delete('/categories/:id', deleteCategoryById); 
 
 // ==================== SUBCATEGORY MANAGEMENT ====================
-router.post('/categories/:categoryId/subcategories', upload.single('image'), createSubcategory);
+router.post('/categories/:categoryId/subcategories', uploadSubcategoryImage, createSubcategory);
 router.get('/categories/:categoryId/subcategories', getSubcategoriesByCategory);
 router.get('/categories/:categoryId/subcategories/:subcategoryId', getSubcategoryById);
-router.put('/categories/:categoryId/subcategories/:subcategoryId', upload.single('image'), updateSubcategoryById);
+router.put('/categories/:categoryId/subcategories/:subcategoryId', uploadSubcategoryImage, updateSubcategoryById);
 router.delete('/categories/:categoryId/subcategories/:subcategoryId', deleteSubcategoryById);
 
 // ==================== PRODUCT MANAGEMENT ====================
@@ -220,5 +236,20 @@ router.post('/latest/add', addLatestDesigns);
 router.get('/latest', getLatestDesignsAdmin);
 router.delete('/latest/remove', deleteLatestDesigns);
 router.patch('/latest/:id/toggle', toggleLatestDesign);
+
+// ==================== UPCOMING COLLECTIONS ====================
+router.post('/upcoming', addUpcomingCollection);
+router.get('/upcoming', getAllUpcomingCollections);
+router.get('/upcoming/:id', getUpcomingCollectionById);
+router.put('/upcoming/:id', updateUpcomingCollection);
+router.delete('/upcoming/:id', removeUpcomingCollection);
+
+// ==================== NOTIFICATION LABELS ====================
+router.post('/notificationlabels', addNotifications);
+router.get('/notificationlabels', getAllNotificationsAdmin);
+router.put('/notificationlabels/:id', updateNotificationById);
+router.delete('/notificationlabels/:id', deleteNotificationById);
+router.patch('/notificationlabels/:id/toggle', toggleNotificationById);
+router.patch('/notificationlabels/toggle-section', toggleSection);
 
 export default router;

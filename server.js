@@ -39,7 +39,9 @@ app.use(cors({
       '**',"*","http://192.168.1.13:3000","http://localhost:3001", 
       "https://brubla-web.onrender.com",
       "https://brubla.onrender.com",
-      "https://brubla-admin.onrender.com"
+      "https://brubla-admin.onrender.com",
+      "http://31.97.228.17:4074",
+      "http://31.97.228.17:4076"
     ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   credentials: true

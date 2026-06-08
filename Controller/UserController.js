@@ -2435,6 +2435,350 @@ export const getActiveLatestDesigns = async (req, res) => {
 //   }
 // };
 
+// export const getFullMenu = async (req, res) => {
+//   try {
+//     const {
+//       categoryId,
+//       subcategoryId,
+//       colors,
+//       sizes,
+//       minPrice,
+//       maxPrice,
+//       sortBy = 'newest',
+//       page = 1,
+//       limit = 20
+//     } = req.query;
+
+//     // Get all active categories with their subcategories
+//     const categories = await Category.find({ isActive: true })
+//       .select('name image description isActive subcategories')
+//       .sort({ name: 1 });
+
+//     // Transform categories to include subcategories
+//     const transformedCategories = categories.map(cat => ({
+//       id: cat._id,
+//       name: cat.name,
+//       image: cat.image || null,
+//       description: cat.description || null,
+//       isActive: cat.isActive,
+//       subcategories: cat.subcategories
+//         .filter(sub => sub.isActive === true)
+//         .map(sub => ({
+//           id: sub._id,
+//           name: sub.name,
+//           image: sub.image || null,
+//           description: sub.description || null,
+//           isActive: sub.isActive
+//         }))
+//     }));
+
+//     // Level 1: If no categoryId, return all categories with subcategories
+//     if (!categoryId) {
+//       return res.status(200).json({
+//         success: true,
+//         level: 'categories',
+//         data: {
+//           categories: transformedCategories
+//         }
+//       });
+//     }
+
+//     // Find selected category
+//     const selectedCategory = categories.find(cat => cat._id.toString() === categoryId);
+//     if (!selectedCategory) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Category not found'
+//       });
+//     }
+
+//     // Get active subcategories for selected category
+//     const subcategories = selectedCategory.subcategories
+//       .filter(sub => sub.isActive === true)
+//       .map(sub => ({
+//         id: sub._id,
+//         name: sub.name,
+//         image: sub.image || null,
+//         description: sub.description || null,
+//         isActive: sub.isActive
+//       }));
+
+//     // Level 2: If no subcategoryId, return categories with subcategories and mark selected
+//     if (!subcategoryId) {
+//       return res.status(200).json({
+//         success: true,
+//         level: 'subcategories',
+//         data: {
+//           categories: transformedCategories.map(cat => ({
+//             ...cat,
+//             isSelected: cat.id === categoryId
+//           })),
+//           selectedCategory: {
+//             id: selectedCategory._id,
+//             name: selectedCategory.name,
+//             image: selectedCategory.image || null,
+//             description: selectedCategory.description || null
+//           },
+//           subcategories
+//         }
+//       });
+//     }
+
+//     // Verify subcategory exists and is active
+//     const selectedSubcategory = selectedCategory.subcategories.find(
+//       sub => sub._id.toString() === subcategoryId && sub.isActive === true
+//     );
+    
+//     if (!selectedSubcategory) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Subcategory not found'
+//       });
+//     }
+
+//     // Level 3: Return full menu with products and filters
+//     // Base query for products
+//     const baseQuery = {
+//       subcategoryId: subcategoryId,
+//       isActive: true,
+//       approvalStatus: { $in: ['approved', 'not_required'] }
+//     };
+
+//     // Get all products in this subcategory for filter extraction
+//     const allProductsInSubcategory = await Product.find(baseQuery)
+//       .select('variants displayPrice')
+//       .lean();
+
+//     // Extract all unique colors and sizes
+//     const allColorsSet = new Set();
+//     const allSizesSet = new Set();
+//     let minProductPrice = Infinity;
+//     let maxProductPrice = -Infinity;
+
+//     allProductsInSubcategory.forEach(product => {
+//       if (product.variants && Array.isArray(product.variants)) {
+//         product.variants.forEach(variant => {
+//           // Extract colors
+//           if (variant.color && typeof variant.color === 'string' && variant.color.trim()) {
+//             allColorsSet.add(variant.color);
+//           }
+          
+//           // Extract sizes
+//           if (variant.sizes && Array.isArray(variant.sizes)) {
+//             variant.sizes.forEach(sizeObj => {
+//               if (sizeObj.size && typeof sizeObj.size === 'string' && sizeObj.size.trim()) {
+//                 allSizesSet.add(sizeObj.size);
+//               }
+//             });
+//           }
+//         });
+//       }
+      
+//       // Track price range
+//       if (product.displayPrice !== undefined && product.displayPrice !== null) {
+//         minProductPrice = Math.min(minProductPrice, product.displayPrice);
+//         maxProductPrice = Math.max(maxProductPrice, product.displayPrice);
+//       }
+//     });
+
+//     const allAvailableColors = Array.from(allColorsSet).sort();
+//     const allAvailableSizes = Array.from(allSizesSet).sort();
+//     const priceRange = {
+//       min: minProductPrice !== Infinity ? minProductPrice : 0,
+//       max: maxProductPrice !== -Infinity ? maxProductPrice : 0
+//     };
+
+//     // Build filtered query for products
+//     let filteredQuery = { ...baseQuery };
+
+//     // Apply color filter
+//     if (colors && colors.trim()) {
+//       const colorArray = colors.split(',').map(c => c.trim());
+//       filteredQuery['variants.color'] = { $in: colorArray };
+//     }
+
+//     // Apply size filter
+//     if (sizes && sizes.trim()) {
+//       const sizeArray = sizes.split(',').map(s => s.trim());
+//       filteredQuery['variants.sizes.size'] = { $in: sizeArray };
+//     }
+
+//     // Apply price filter
+//     if (minPrice || maxPrice) {
+//       filteredQuery.displayPrice = {};
+//       if (minPrice) filteredQuery.displayPrice.$gte = parseFloat(minPrice);
+//       if (maxPrice) filteredQuery.displayPrice.$lte = parseFloat(maxPrice);
+//     }
+
+//     // Pagination
+//     const pageNum = parseInt(page) || 1;
+//     const limitNum = parseInt(limit) || 20;
+//     const skip = (pageNum - 1) * limitNum;
+
+//     // Sorting
+//     let sort = {};
+//     switch (sortBy) {
+//       case 'price_asc':
+//         sort.displayPrice = 1;
+//         break;
+//       case 'price_desc':
+//         sort.displayPrice = -1;
+//         break;
+//       case 'rating_desc':
+//         sort.averageRating = -1;
+//         break;
+//       case 'newest':
+//         sort.createdAt = -1;
+//         break;
+//       default:
+//         sort.createdAt = -1;
+//     }
+
+//     // Get filtered products
+//     const products = await Product.find(filteredQuery)
+//       .sort(sort)
+//       .skip(skip)
+//       .limit(limitNum);
+
+//     const total = await Product.countDocuments(filteredQuery);
+
+//     // Transform products
+//     const transformedProducts = products.map(product => {
+//       const productObj = product.toObject();
+      
+//       const productColors = [];
+//       const productSizes = [];
+      
+//       if (productObj.variants && Array.isArray(productObj.variants)) {
+//         productObj.variants.forEach(variant => {
+//           if (variant.color && !productColors.includes(variant.color)) {
+//             productColors.push(variant.color);
+//           }
+          
+//           if (variant.sizes && Array.isArray(variant.sizes)) {
+//             variant.sizes.forEach(sizeObj => {
+//               if (sizeObj.size && !productSizes.includes(sizeObj.size)) {
+//                 productSizes.push(sizeObj.size);
+//               }
+//             });
+//           }
+//         });
+//       }
+      
+//       const firstVariant = productObj.variants?.find(v => v.images && v.images.length > 0);
+//       const mainImage = firstVariant?.images?.[0] || productObj.mainImages?.[0] || null;
+      
+//       return {
+//         id: productObj._id,
+//         name: productObj.name,
+//         description: productObj.description,
+//         displayPrice: productObj.displayPrice,
+//         originalPrice: productObj.displayActualPrice,
+//         discount: productObj.maxDiscount,
+//         mainImage: mainImage,
+//         colors: productColors,
+//         sizes: productSizes,
+//         rating: productObj.averageRating || 0,
+//         createdAt: productObj.createdAt
+//       };
+//     });
+
+//     // Get available colors/sizes based on current filters
+//     let availableColors = allAvailableColors;
+//     let availableSizes = allAvailableSizes;
+
+//     if (colors || sizes || minPrice || maxPrice) {
+//       const filteredProducts = await Product.find(filteredQuery)
+//         .select('variants')
+//         .lean();
+      
+//       const filteredColorsSet = new Set();
+//       const filteredSizesSet = new Set();
+      
+//       filteredProducts.forEach(product => {
+//         if (product.variants && Array.isArray(product.variants)) {
+//           product.variants.forEach(variant => {
+//             if (variant.color && variant.color.trim()) {
+//               filteredColorsSet.add(variant.color);
+//             }
+//             if (variant.sizes && Array.isArray(variant.sizes)) {
+//               variant.sizes.forEach(sizeObj => {
+//                 if (sizeObj.size && sizeObj.size.trim()) {
+//                   filteredSizesSet.add(sizeObj.size);
+//                 }
+//               });
+//             }
+//           });
+//         }
+//       });
+      
+//       availableColors = Array.from(filteredColorsSet).sort();
+//       availableSizes = Array.from(filteredSizesSet).sort();
+//     }
+
+//     // Final response with full menu
+//     return res.status(200).json({
+//       success: true,
+//       level: 'products',
+//       data: {
+//         categories: transformedCategories.map(cat => ({
+//           ...cat,
+//           isSelected: cat.id === categoryId
+//         })),
+//         selectedCategory: {
+//           id: selectedCategory._id,
+//           name: selectedCategory.name,
+//           image: selectedCategory.image || null,
+//           description: selectedCategory.description || null
+//         },
+//         subcategories: subcategories.map(sub => ({
+//           ...sub,
+//           isSelected: sub.id === subcategoryId
+//         })),
+//         selectedSubcategory: {
+//           id: selectedSubcategory._id,
+//           name: selectedSubcategory.name,
+//           image: selectedSubcategory.image || null,
+//           description: selectedSubcategory.description || null,
+//           isActive: selectedSubcategory.isActive
+//         },
+//         filters: {
+//           allColors: allAvailableColors,
+//           allSizes: allAvailableSizes,
+//           availableColors: availableColors,
+//           availableSizes: availableSizes,
+//           priceRange: priceRange,
+//           activeFilters: {
+//             colors: colors ? colors.split(',').map(c => c.trim()) : [],
+//             sizes: sizes ? sizes.split(',').map(s => s.trim()) : [],
+//             minPrice: minPrice ? parseFloat(minPrice) : null,
+//             maxPrice: maxPrice ? parseFloat(maxPrice) : null
+//           }
+//         },
+//         products: {
+//           data: transformedProducts,
+//           pagination: {
+//             total: total,
+//             filtered: total,
+//             page: pageNum,
+//             pages: Math.ceil(total / limitNum),
+//             limit: limitNum,
+//             hasNextPage: pageNum < Math.ceil(total / limitNum),
+//             hasPrevPage: pageNum > 1
+//           }
+//         }
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error('getFullMenu error:', error);
+//     return res.status(500).json({
+//       success: false,
+//       message: error.message || 'Internal server error'
+//     });
+//   }
+// };
+
 export const getFullMenu = async (req, res) => {
   try {
     const {
@@ -2454,25 +2798,30 @@ export const getFullMenu = async (req, res) => {
       .select('name image description isActive subcategories')
       .sort({ name: 1 });
 
-    // Transform categories to include subcategories
-    const transformedCategories = categories.map(cat => ({
+    // Transform categories and fetch filters for each subcategory
+    const transformedCategories = await Promise.all(categories.map(async (cat) => ({
       id: cat._id,
       name: cat.name,
       image: cat.image || null,
       description: cat.description || null,
       isActive: cat.isActive,
-      subcategories: cat.subcategories
+      subcategories: await Promise.all(cat.subcategories
         .filter(sub => sub.isActive === true)
-        .map(sub => ({
-          id: sub._id,
-          name: sub.name,
-          image: sub.image || null,
-          description: sub.description || null,
-          isActive: sub.isActive
+        .map(async (sub) => {
+          // Get filters for this subcategory
+          const subcategoryFilters = await getSubcategoryFilters(sub._id);
+          return {
+            id: sub._id,
+            name: sub.name,
+            image: sub.image || null,
+            description: sub.description || null,
+            isActive: sub.isActive,
+            filters: subcategoryFilters // Add filters to each subcategory
+          };
         }))
-    }));
+    })));
 
-    // Level 1: If no categoryId, return all categories with subcategories
+    // Level 1: If no categoryId, return all categories with subcategories and their filters
     if (!categoryId) {
       return res.status(200).json({
         success: true,
@@ -2492,15 +2841,19 @@ export const getFullMenu = async (req, res) => {
       });
     }
 
-    // Get active subcategories for selected category
-    const subcategories = selectedCategory.subcategories
+    // Get active subcategories for selected category with filters
+    const subcategories = await Promise.all(selectedCategory.subcategories
       .filter(sub => sub.isActive === true)
-      .map(sub => ({
-        id: sub._id,
-        name: sub.name,
-        image: sub.image || null,
-        description: sub.description || null,
-        isActive: sub.isActive
+      .map(async (sub) => {
+        const subcategoryFilters = await getSubcategoryFilters(sub._id);
+        return {
+          id: sub._id,
+          name: sub.name,
+          image: sub.image || null,
+          description: sub.description || null,
+          isActive: sub.isActive,
+          filters: subcategoryFilters
+        };
       }));
 
     // Level 2: If no subcategoryId, return categories with subcategories and mark selected
@@ -2778,6 +3131,69 @@ export const getFullMenu = async (req, res) => {
     });
   }
 };
+
+// Helper function to get filters for a subcategory
+async function getSubcategoryFilters(subcategoryId) {
+  try {
+    const baseQuery = {
+      subcategoryId: subcategoryId,
+      isActive: true,
+      approvalStatus: { $in: ['approved', 'not_required'] }
+    };
+
+    // Get products in this subcategory
+    const products = await Product.find(baseQuery)
+      .select('variants displayPrice')
+      .lean();
+
+    // Extract colors and sizes
+    const colorsSet = new Set();
+    const sizesSet = new Set();
+    let minPrice = Infinity;
+    let maxPrice = -Infinity;
+
+    products.forEach(product => {
+      if (product.variants && Array.isArray(product.variants)) {
+        product.variants.forEach(variant => {
+          if (variant.color && variant.color.trim()) {
+            colorsSet.add(variant.color);
+          }
+          
+          if (variant.sizes && Array.isArray(variant.sizes)) {
+            variant.sizes.forEach(sizeObj => {
+              if (sizeObj.size && sizeObj.size.trim()) {
+                sizesSet.add(sizeObj.size);
+              }
+            });
+          }
+        });
+      }
+      
+      if (product.displayPrice !== undefined && product.displayPrice !== null) {
+        minPrice = Math.min(minPrice, product.displayPrice);
+        maxPrice = Math.max(maxPrice, product.displayPrice);
+      }
+    });
+
+    return {
+      colors: Array.from(colorsSet).sort(),
+      sizes: Array.from(sizesSet).sort(),
+      priceRange: {
+        min: minPrice !== Infinity ? minPrice : 0,
+        max: maxPrice !== -Infinity ? maxPrice : 0
+      },
+      productCount: products.length
+    };
+  } catch (error) {
+    console.error(`Error getting filters for subcategory ${subcategoryId}:`, error);
+    return {
+      colors: [],
+      sizes: [],
+      priceRange: { min: 0, max: 0 },
+      productCount: 0
+    };
+  }
+}
 
 export const searchProducts = async (req, res) => {
   try {

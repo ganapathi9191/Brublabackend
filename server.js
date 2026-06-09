@@ -1,4 +1,5 @@
 import express from 'express';
+import jwt from 'jsonwebtoken'; 
 import http from 'http';
 import cors from 'cors';
 import bodyParser from 'body-parser';
@@ -9,6 +10,7 @@ import path from 'path';
 import UserRoutes from './Routes/userRoutes.js';
 import { fileURLToPath } from 'url';
 import adminRoutes from './Routes/adminRoutes.js';
+import designerRoutes from './Routes/designerRoutes.js';
 import dns from 'dns';
 import fs from 'fs';
 import { createDefaultAdmin } from './utils/createAdmin.js';
@@ -64,6 +66,44 @@ app.get('/', (req, res) => {
 // ✅ Routes
 app.use('/api/users', UserRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/designer', designerRoutes);
+
+app.get('/api/debug/token', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  console.log('Debug - Auth Header:', authHeader);
+  
+  if (!authHeader) {
+    return res.json({
+      valid: false,
+      message: 'No Authorization header'
+    });
+  }
+  
+  const token = authHeader.substring(7);
+  console.log('Debug - Token length:', token.length);
+  console.log('Debug - Token preview:', token.substring(0, 50) + '...');
+  
+  try {
+    const secret = process.env.JWT_SECRET_KEY;
+    console.log('Debug - Using secret:', secret ? secret.substring(0, 10) + '...' : 'NOT FOUND');
+    
+    const decoded = jwt.verify(token, secret);
+    res.json({
+      valid: true,
+      tokenLength: token.length,
+      decoded: decoded
+    });
+  } catch (error) {
+    console.error('Debug - Error:', error.message);
+    res.json({
+      valid: false,
+      tokenLength: token.length,
+      error: error.message,
+      errorName: error.name
+    });
+  }
+});
 
 // ✅ Server
 const port = process.env.PORT || 4077;

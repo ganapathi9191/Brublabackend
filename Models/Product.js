@@ -454,7 +454,7 @@ const productSchema = new mongoose.Schema({
   // Creator Information
   createdBy: {
     type: String,
-    enum: ['admin', 'designer', 'tailor'],
+    enum: ['admin', 'designer', 'tailor', 'Stylist'],
     required: true
   },
   creatorId: {

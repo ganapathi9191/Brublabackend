@@ -1041,10 +1041,10 @@ export const createProduct = async (req, res) => {
       tags
     } = req.body;
 
-    if (!['admin', 'designer', 'tailor'].includes(userRole)) {
+    if (!['admin', 'designer', 'tailor', 'Stylist'].includes(userRole)) {
       return res.status(403).json({
         success: false,
-        message: 'Only Admin, Designer, or Tailor can create products'
+        message: 'Only Admin, Designer, Tailor, or Stylist can create products'
       });
     }
 
@@ -4829,5 +4829,497 @@ export const clearAllNotifications = async (req, res) => {
       success: false,
       message: error.message
     });
+  }
+};
+
+
+// ======================= Designer Products ====================
+
+// Get all designer products (with filters)
+export const getAllDesignerProducts = async (req, res) => {
+  try {
+    const { 
+      status, 
+      page = 1, 
+      limit = 20, 
+      search,
+      designerId,
+      sortBy = 'newest'
+    } = req.query;
+    
+    let query = { createdBy: 'designer' };
+    
+    // Filter by approval status
+    if (status === 'pending') query.approvalStatus = 'pending';
+    if (status === 'approved') query.approvalStatus = 'approved';
+    if (status === 'rejected') query.approvalStatus = 'rejected';
+    if (status === 'active') query.isActive = true;
+    
+    // Filter by specific designer
+    if (designerId) {
+      query.creatorId = designerId;
+    }
+    
+    // Search by product name
+    if (search) {
+      query.name = { $regex: search, $options: 'i' };
+    }
+    
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Sorting
+    let sort = {};
+    if (sortBy === 'newest') sort.createdAt = -1;
+    if (sortBy === 'oldest') sort.createdAt = 1;
+    if (sortBy === 'price_asc') sort.displayPrice = 1;
+    if (sortBy === 'price_desc') sort.displayPrice = -1;
+    
+    const products = await Product.find(query)
+      .populate('creatorId', 'name email mobile profileImage')
+      .populate('categoryId', 'name')
+      .sort(sort)
+      .skip(skip)
+      .limit(parseInt(limit));
+    
+    const total = await Product.countDocuments(query);
+    
+    // Get statistics
+    const stats = {
+      total: await Product.countDocuments({ createdBy: 'designer' }),
+      pending: await Product.countDocuments({ createdBy: 'designer', approvalStatus: 'pending' }),
+      approved: await Product.countDocuments({ createdBy: 'designer', approvalStatus: 'approved' }),
+      rejected: await Product.countDocuments({ createdBy: 'designer', approvalStatus: 'rejected' }),
+      active: await Product.countDocuments({ createdBy: 'designer', isActive: true })
+    };
+    
+    // Transform products for response
+    const transformedProducts = products.map(product => {
+      const productObj = product.toObject();
+      const firstVariant = productObj.variants?.[0];
+      const mainImage = firstVariant?.images?.[0] || productObj.mainImages?.[0] || null;
+      
+      return {
+        _id: productObj._id,
+        name: productObj.name,
+        description: productObj.description,
+        displayPrice: productObj.displayPrice,
+        displayActualPrice: productObj.displayActualPrice,
+        maxDiscount: productObj.maxDiscount,
+        mainImage: mainImage,
+        approvalStatus: productObj.approvalStatus,
+        isActive: productObj.isActive,
+        rejectionReason: productObj.rejectionReason,
+        creator: productObj.creatorId,
+        category: productObj.categoryId,
+        variantsCount: productObj.variants?.length || 0,
+        createdAt: productObj.createdAt,
+        updatedAt: productObj.updatedAt
+      };
+    });
+    
+    return res.status(200).json({
+      success: true,
+      count: transformedProducts.length,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / parseInt(limit)),
+      stats,
+      products: transformedProducts
+    });
+    
+  } catch (error) {
+    console.error('getAllDesignerProducts error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get single designer product by ID
+export const getDesignerProductById = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    
+    const product = await Product.findOne({ 
+      _id: productId,
+      createdBy: 'designer'
+    })
+      .populate('creatorId', 'name email mobile profileImage about brandName')
+      .populate('categoryId', 'name')
+      .populate('subcategoryId');
+    
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Designer product not found'
+      });
+    }
+    
+    return res.status(200).json({
+      success: true,
+      product
+    });
+    
+  } catch (error) {
+    console.error('getDesignerProductById error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Approve designer product
+export const approveDesignerProduct = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { approvalNotes } = req.body;
+    
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+    
+    if (product.createdBy !== 'designer') {
+      return res.status(400).json({
+        success: false,
+        message: 'This product is not a designer product'
+      });
+    }
+    
+    if (product.approvalStatus === 'approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Product is already approved'
+      });
+    }
+    
+    product.approvalStatus = 'approved';
+    product.isActive = true;
+    product.rejectionReason = null;
+    product.approvalNotes = approvalNotes;
+    product.approvedAt = new Date();
+    product.approvedBy = req.user.id;
+    
+    await product.save();
+    
+    // Get designer info for notification
+    const designer = await User.findById(product.creatorId);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Product approved successfully',
+      product: {
+        _id: product._id,
+        name: product.name,
+        approvalStatus: product.approvalStatus,
+        isActive: product.isActive,
+        approvedAt: product.approvedAt
+      },
+      designer: {
+        id: designer?._id,
+        name: designer?.name,
+        email: designer?.email
+      }
+    });
+    
+  } catch (error) {
+    console.error('approveDesignerProduct error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Reject designer product
+export const rejectDesignerProduct = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { rejectionReason } = req.body;
+    
+    if (!rejectionReason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rejection reason is required'
+      });
+    }
+    
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+    
+    if (product.createdBy !== 'designer') {
+      return res.status(400).json({
+        success: false,
+        message: 'This product is not a designer product'
+      });
+    }
+    
+    if (product.approvalStatus === 'approved') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot reject an already approved product'
+      });
+    }
+    
+    product.approvalStatus = 'rejected';
+    product.isActive = false;
+    product.rejectionReason = rejectionReason;
+    product.rejectedAt = new Date();
+    product.rejectedBy = req.user.id;
+    
+    await product.save();
+    
+    // Get designer info for notification
+    const designer = await User.findById(product.creatorId);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Product rejected successfully',
+      product: {
+        _id: product._id,
+        name: product.name,
+        approvalStatus: product.approvalStatus,
+        rejectionReason: product.rejectionReason,
+        rejectedAt: product.rejectedAt
+      },
+      designer: {
+        id: designer?._id,
+        name: designer?.name,
+        email: designer?.email
+      }
+    });
+    
+  } catch (error) {
+    console.error('rejectDesignerProduct error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Bulk approve designer products
+export const bulkApproveProducts = async (req, res) => {
+  try {
+    const { productIds } = req.body;
+    
+    if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product IDs array is required'
+      });
+    }
+    
+    const result = await Product.updateMany(
+      { 
+        _id: { $in: productIds },
+        createdBy: 'designer',
+        approvalStatus: { $ne: 'approved' }
+      },
+      {
+        $set: {
+          approvalStatus: 'approved',
+          isActive: true,
+          rejectionReason: null,
+          approvedAt: new Date(),
+          approvedBy: req.user.id
+        }
+      }
+    );
+    
+    return res.status(200).json({
+      success: true,
+      message: `${result.modifiedCount} product(s) approved successfully`,
+      modifiedCount: result.modifiedCount
+    });
+    
+  } catch (error) {
+    console.error('bulkApproveProducts error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Bulk reject designer products
+export const bulkRejectProducts = async (req, res) => {
+  try {
+    const { productIds, rejectionReason } = req.body;
+    
+    if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Product IDs array is required'
+      });
+    }
+    
+    if (!rejectionReason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rejection reason is required for bulk reject'
+      });
+    }
+    
+    const result = await Product.updateMany(
+      { 
+        _id: { $in: productIds },
+        createdBy: 'designer',
+        approvalStatus: { $ne: 'approved' }
+      },
+      {
+        $set: {
+          approvalStatus: 'rejected',
+          isActive: false,
+          rejectionReason: rejectionReason,
+          rejectedAt: new Date(),
+          rejectedBy: req.user.id
+        }
+      }
+    );
+    
+    return res.status(200).json({
+      success: true,
+      message: `${result.modifiedCount} product(s) rejected successfully`,
+      modifiedCount: result.modifiedCount
+    });
+    
+  } catch (error) {
+    console.error('bulkRejectProducts error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get all designers (for filtering)
+export const getAllDesigners = async (req, res) => {
+  try {
+    const designers = await User.find({ role: 'designer' })
+      .select('_id name email mobile profileImage isActive createdAt')
+      .sort({ createdAt: -1 });
+    
+    // Get product counts for each designer
+    const designersWithStats = await Promise.all(designers.map(async (designer) => {
+      const productStats = {
+        total: await Product.countDocuments({ creatorId: designer._id, createdBy: 'designer' }),
+        pending: await Product.countDocuments({ creatorId: designer._id, approvalStatus: 'pending' }),
+        approved: await Product.countDocuments({ creatorId: designer._id, approvalStatus: 'approved' }),
+        rejected: await Product.countDocuments({ creatorId: designer._id, approvalStatus: 'rejected' })
+      };
+      
+      return {
+        ...designer.toObject(),
+        productStats
+      };
+    }));
+    
+    return res.status(200).json({
+      success: true,
+      count: designersWithStats.length,
+      designers: designersWithStats
+    });
+    
+  } catch (error) {
+    console.error('getAllDesigners error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get designer details with their products
+export const getDesignerDetails = async (req, res) => {
+  try {
+    const { designerId } = req.params;
+    
+    const designer = await User.findById(designerId)
+      .select('-otp -otpExpires -authToken -authTokenExpires -deleteToken -deleteTokenExpiration');
+    
+    if (!designer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Designer not found'
+      });
+    }
+    
+    const products = await Product.find({ 
+      creatorId: designerId,
+      createdBy: 'designer'
+    })
+      .sort({ createdAt: -1 })
+      .select('name displayPrice approvalStatus isActive rejectionReason createdAt');
+    
+    const stats = {
+      totalProducts: products.length,
+      pending: products.filter(p => p.approvalStatus === 'pending').length,
+      approved: products.filter(p => p.approvalStatus === 'approved').length,
+      rejected: products.filter(p => p.approvalStatus === 'rejected').length,
+      active: products.filter(p => p.isActive === true).length
+    };
+    
+    return res.status(200).json({
+      success: true,
+      designer: {
+        id: designer._id,
+        name: designer.name,
+        email: designer.email,
+        mobile: designer.mobile,
+        profileImage: designer.profileImage,
+        about: designer.about,
+        brandName: designer.brandName,
+        isActive: designer.isActive,
+        createdAt: designer.createdAt
+      },
+      stats,
+      products
+    });
+    
+  } catch (error) {
+    console.error('getDesignerDetails error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Delete designer product (admin forced delete)
+export const adminDeleteDesignerProduct = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    
+    const product = await Product.findOne({ 
+      _id: productId,
+      createdBy: 'designer'
+    });
+    
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: 'Designer product not found'
+      });
+    }
+    
+    // Delete variant images
+    if (product.variants && product.variants.length) {
+      product.variants.forEach(variant => {
+        if (variant.images && variant.images.length) {
+          variant.images.forEach(image => {
+            if (!image.startsWith('http')) {
+              deleteFile(image);
+            }
+          });
+        }
+      });
+    }
+    
+    // Delete size guide videos
+    if (product.sizeGuide && product.sizeGuide.length) {
+      product.sizeGuide.forEach(video => {
+        if (!video.startsWith('http')) {
+          deleteFile(video);
+        }
+      });
+    }
+    
+    await Product.findByIdAndDelete(productId);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Product deleted successfully'
+    });
+    
+  } catch (error) {
+    console.error('adminDeleteDesignerProduct error:', error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };

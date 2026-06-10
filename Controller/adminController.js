@@ -5188,7 +5188,7 @@ export const bulkRejectProducts = async (req, res) => {
 // Get all designers (for filtering)
 export const getAllDesigners = async (req, res) => {
   try {
-    const designers = await User.find({ role: 'designer' })
+    const designers = await User.find({ role: 'Designer' })
       .select('_id name email mobile profileImage isActive createdAt')
       .sort({ createdAt: -1 });
     

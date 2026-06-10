@@ -266,14 +266,14 @@ router.patch('/notificationlabels/toggle-section', toggleSection);
 // ==================== DESIGNER PRODUCT MANAGEMENT ====================
 router.get('/designer-products',  getAllDesignerProducts);
 router.get('/designer-products/:productId', getDesignerProductById);
-router.patch('/designer-products/:productId/approve', approveDesignerProduct);
-router.patch('/designer-products/:productId/reject', rejectDesignerProduct);
-router.post('/designer-products/bulk-approve', bulkApproveProducts);
-router.post('/designer-products/bulk-reject', bulkRejectProducts);
-router.delete('/designer-products/:productId', adminDeleteDesignerProduct);
+router.patch('/designer-products/:productId/approve', authenticateToken, approveDesignerProduct);
+router.patch('/designer-products/:productId/reject', authenticateToken, rejectDesignerProduct);
+router.post('/designer-products/bulk-approve', authenticateToken, bulkApproveProducts);
+router.post('/designer-products/bulk-reject', authenticateToken, bulkRejectProducts);
+router.delete('/designer-products/:productId', authenticateToken, adminDeleteDesignerProduct);
 
 // ==================== DESIGNER MANAGEMENT ====================
-router.get('/designers', authenticateToken, getAllDesigners);
+router.get('/alldesigners',  getAllDesigners);
 router.get('/designers/:designerId',  getDesignerDetails);
 
 export default router;

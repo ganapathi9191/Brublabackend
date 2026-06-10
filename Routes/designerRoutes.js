@@ -77,9 +77,10 @@ router.use(authorizeRoles('designer', 'admin'));
 router.get('/stats', getDesignerStats);
 router.get('/profile', getDesignerProfile);
 router.put('/profile', updateDesignerProfile);
+router.get('/products', getDesignerProducts);
 
 // Products
-router.get('/products', getDesignerProducts);
+
 router.get('/products/:productId', getDesignerProductById);
 router.post('/products', uploadProductMedia, createDesignerProduct);
 router.put('/products/:id', uploadProductMedia, updateDesignerProduct);

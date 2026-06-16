@@ -679,6 +679,7 @@ export const addAddress = async (req, res) => {
     });
   }
 };
+
 /**
  * Get all addresses
  * GET /api/address/all/:userId

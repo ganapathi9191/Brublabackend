@@ -859,165 +859,6 @@ const deleteProductFiles = (filePaths) => {
 };
 
 
-// // ==================== PRODUCT MANAGEMENT ====================
-// export const createProduct = async (req, res) => {
-//   try {
-//     const {
-//       name,
-//       description,
-//       categoryId,
-//       subcategoryId,
-//       variants,
-//       deliveryAddresses,
-//       tags
-//     } = req.body;
-
-//     const userId = req.user.id;
-//     const userRole = req.user.role;
-
-//     // Validate role
-//     if (!['admin', 'designer', 'tailor'].includes(userRole)) {
-//       return res.status(403).json({
-//         success: false,
-//         message: 'Only Admin, Designer, or Tailor can create products'
-//       });
-//     }
-
-//     // Validate required fields
-//     if (!name || !description || !categoryId || !subcategoryId) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Missing required fields: name, description, categoryId, subcategoryId'
-//       });
-//     }
-
-//     // Validate variants
-//     let variantsArray = [];
-//     try {
-//       variantsArray = typeof variants === 'string' ? JSON.parse(variants) : variants;
-//     } catch (e) {
-//       variantsArray = [];
-//     }
-
-//     if (!variantsArray.length) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'At least one product variant is required'
-//       });
-//     }
-
-//     // Validate category
-//     const category = await Category.findById(categoryId);
-//     if (!category) {
-//       return res.status(404).json({
-//         success: false,
-//         message: 'Category not found'
-//       });
-//     }
-
-//     const subcategory = category.subcategories.id(subcategoryId);
-//     if (!subcategory) {
-//       return res.status(404).json({
-//         success: false,
-//         message: 'Subcategory not found in this category'
-//       });
-//     }
-
-//     // Get uploaded files
-//     const imageFiles = req.files?.images || [];
-//     const videoFiles = req.files?.videos || [];
-
-//     if (!imageFiles.length) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'At least one product image is required'
-//       });
-//     }
-
-//     // Process variants with images
-//     const processedVariants = variantsArray.map((variant, index) => {
-//       const variantImages = imageFiles
-//         .filter((_, i) => i % variantsArray.length === index)
-//         .map(file => getFileUrl(req, path.basename(file.path), 'products'));
-
-//       return {
-//         color: variant.color,
-//         size: variant.size,
-//         actualPrice: parseFloat(variant.actualPrice),
-//         discountPrice: variant.discountPrice ? parseFloat(variant.discountPrice) : null,
-//         stock: parseInt(variant.stock) || 0,
-//         images: variantImages,
-//         isActive: true
-//       };
-//     });
-
-//     const videoUrls = videoFiles.map(file => 
-//       getFileUrl(req, path.basename(file.path), 'products')
-//     );
-
-//     let addressesArray = [];
-//     if (deliveryAddresses) {
-//       try {
-//         addressesArray = typeof deliveryAddresses === 'string' ? JSON.parse(deliveryAddresses) : deliveryAddresses;
-//       } catch (e) {}
-//     }
-
-//     let tagsArray = [];
-//     if (tags) {
-//       try {
-//         tagsArray = typeof tags === 'string' ? JSON.parse(tags) : tags;
-//       } catch (e) {}
-//     }
-
-//     let creatorDetails = null;
-//     if (userRole !== 'admin') {
-//       const user = await User.findById(userId);
-//       if (user) {
-//         creatorDetails = {
-//           name: user.name,
-//           profileImage: user.profileImage || '',
-//           role: userRole,
-//           brandName: userRole === 'designer' ? user.name : undefined,
-//           shopName: userRole === 'tailor' ? user.name : undefined
-//         };
-//       }
-//     }
-
-//     const product = new Product({
-//       name,
-//       description,
-//       categoryId,
-//       subcategoryId,
-//       subcategoryName: subcategory.name,
-//       variants: processedVariants,
-//       deliveryAddresses: addressesArray,
-//       sizeGuide: videoUrls,
-//       tags: tagsArray,
-//       createdBy: userRole,
-//       creatorId: userId,
-//       creatorDetails
-//     });
-
-//     await product.save();
-
-//     return res.status(201).json({
-//       success: true,
-//       message: userRole === 'admin' ? 'Product created successfully' : 'Product submitted for admin approval',
-//       product,
-//       requiresApproval: userRole !== 'admin'
-//     });
-
-//   } catch (error) {
-//     console.error('createProduct error:', error);
-    
-//     // Simple error response without cleanup
-//     return res.status(500).json({
-//       success: false,
-//       message: error.message || 'Internal server error'
-//     });
-//   }
-// };
-
 // Controller/adminController.js - Updated createProduct for new structure
 export const createProduct = async (req, res) => {
   try {
@@ -5321,5 +5162,386 @@ export const adminDeleteDesignerProduct = async (req, res) => {
   } catch (error) {
     console.error('adminDeleteDesignerProduct error:', error);
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+// ==================== GET USER WALLET BALANCE ====================
+
+/**
+ * Get specific user's wallet balance
+ * GET /api/admin/wallet/:userId
+ */
+export const getUserWallet = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const user = await User.findById(userId).select('wallet name email mobile');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    const transactions = user.wallet.transactions || [];
+    const totalCredits = transactions
+      .filter(t => t.type === 'credit' || t.type === 'refund' || t.type === 'cashback')
+      .reduce((sum, t) => sum + t.amount, 0);
+    
+    const totalDebits = transactions
+      .filter(t => t.type === 'debit')
+      .reduce((sum, t) => sum + t.amount, 0);
+    
+    return res.status(200).json({
+      success: true,
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          mobile: user.mobile
+        },
+        wallet: {
+          balance: user.wallet.balance || 0,
+          isActive: user.wallet.isActive !== undefined ? user.wallet.isActive : true,
+          totalCredits: totalCredits,
+          totalDebits: totalDebits,
+          transactionCount: transactions.length,
+          lastUpdated: user.wallet.updatedAt || user.updatedAt
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('getUserWallet error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// ==================== GET USER TRANSACTION HISTORY ====================
+
+/**
+ * Get user's transaction history with pagination
+ * GET /api/admin/wallet/:userId/transactions
+ */
+export const getUserTransactions = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { page = 1, limit = 20, type } = req.query;
+    
+    const user = await User.findById(userId).select('wallet name');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    let transactions = user.wallet.transactions || [];
+    
+    // Filter by type
+    if (type && ['credit', 'debit', 'refund', 'cashback'].includes(type)) {
+      transactions = transactions.filter(t => t.type === type);
+    }
+    
+    // Sort by newest first
+    transactions.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
+    const total = transactions.length;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const paginated = transactions.slice(skip, skip + parseInt(limit));
+    
+    return res.status(200).json({
+      success: true,
+      data: {
+        user: {
+          id: user._id,
+          name: user.name
+        },
+        transactions: paginated.map(t => ({
+          id: t._id,
+          type: t.type,
+          amount: t.amount,
+          description: t.description,
+          referenceId: t.referenceId,
+          referenceType: t.referenceType,
+          status: t.status,
+          balance: t.balance,
+          createdAt: t.createdAt
+        })),
+        pagination: {
+          total,
+          page: parseInt(page),
+          pages: Math.ceil(total / parseInt(limit)),
+          limit: parseInt(limit)
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('getUserTransactions error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// ==================== ADMIN ADD MONEY ====================
+
+/**
+ * Admin adds money to user's wallet
+ * POST /api/admin/wallet/:userId/add-money
+ */
+export const adminAddMoney = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { amount, description, reason } = req.body;
+    
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid amount is required'
+      });
+    }
+    
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    if (user.wallet.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'Wallet is currently inactive'
+      });
+    }
+    
+    const newBalance = user.wallet.balance + amount;
+    
+    const transaction = {
+      type: 'credit',
+      amount: amount,
+      description: description || `Admin added ₹${amount}${reason ? ' - ' + reason : ''}`,
+      referenceType: 'admin',
+      status: 'completed',
+      balance: newBalance
+    };
+    
+    user.wallet.transactions.push(transaction);
+    user.wallet.balance = newBalance;
+    user.wallet.updatedAt = new Date();
+    
+    await user.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: `₹${amount} added to ${user.name}'s wallet successfully`,
+      data: {
+        user: {
+          id: user._id,
+          name: user.name
+        },
+        balance: user.wallet.balance,
+        transaction: {
+          id: transaction._id,
+          amount: transaction.amount,
+          type: transaction.type,
+          description: transaction.description,
+          balance: transaction.balance,
+          createdAt: transaction.createdAt
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('adminAddMoney error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// ==================== ADMIN DEDUCT MONEY ====================
+
+/**
+ * Admin deducts money from user's wallet
+ * POST /api/admin/wallet/:userId/deduct
+ */
+export const adminDeductMoney = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { amount, description, reason } = req.body;
+    
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid amount is required'
+      });
+    }
+    
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    if (user.wallet.balance < amount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient wallet balance',
+        data: { 
+          available: user.wallet.balance,
+          required: amount
+        }
+      });
+    }
+    
+    if (user.wallet.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'Wallet is currently inactive'
+      });
+    }
+    
+    const newBalance = user.wallet.balance - amount;
+    
+    const transaction = {
+      type: 'debit',
+      amount: amount,
+      description: description || `Admin deducted ₹${amount}${reason ? ' - ' + reason : ''}`,
+      referenceType: 'admin',
+      status: 'completed',
+      balance: newBalance
+    };
+    
+    user.wallet.transactions.push(transaction);
+    user.wallet.balance = newBalance;
+    user.wallet.updatedAt = new Date();
+    
+    await user.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: `₹${amount} deducted from ${user.name}'s wallet`,
+      data: {
+        user: {
+          id: user._id,
+          name: user.name
+        },
+        balance: user.wallet.balance,
+        transaction: {
+          id: transaction._id,
+          amount: transaction.amount,
+          type: transaction.type,
+          description: transaction.description,
+          balance: transaction.balance,
+          createdAt: transaction.createdAt
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('adminDeductMoney error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// ==================== ADMIN REFUND TO WALLET ====================
+
+/**
+ * Admin refunds to user's wallet
+ * POST /api/admin/wallet/:userId/refund
+ */
+export const adminRefundWallet = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { amount, orderId, description } = req.body;
+    
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid amount is required'
+      });
+    }
+    
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    if (user.wallet.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'Wallet is currently inactive'
+      });
+    }
+    
+    const newBalance = user.wallet.balance + amount;
+    
+    const transaction = {
+      type: 'refund',
+      amount: amount,
+      description: description || `Refund for order ${orderId || ''}`,
+      referenceId: orderId || null,
+      referenceType: 'refund',
+      status: 'completed',
+      balance: newBalance
+    };
+    
+    user.wallet.transactions.push(transaction);
+    user.wallet.balance = newBalance;
+    user.wallet.updatedAt = new Date();
+    
+    await user.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: `₹${amount} refunded to ${user.name}'s wallet`,
+      data: {
+        user: {
+          id: user._id,
+          name: user.name
+        },
+        balance: user.wallet.balance,
+        transaction: {
+          id: transaction._id,
+          amount: transaction.amount,
+          type: transaction.type,
+          description: transaction.description,
+          referenceId: transaction.referenceId,
+          balance: transaction.balance,
+          createdAt: transaction.createdAt
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('adminRefundWallet error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };

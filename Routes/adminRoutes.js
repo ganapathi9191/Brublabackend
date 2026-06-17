@@ -131,7 +131,14 @@ import {
   bulkRejectProducts,
   getAllDesigners,
   getDesignerDetails,
-  adminDeleteDesignerProduct
+  adminDeleteDesignerProduct,
+
+  //Wallet
+  getUserWallet,
+  getUserTransactions,
+  adminAddMoney,
+  adminDeductMoney,
+  adminRefundWallet
 } from '../Controller/adminController.js';
 
 const router = express.Router();
@@ -275,5 +282,22 @@ router.delete('/designer-products/:productId', authenticateToken, adminDeleteDes
 // ==================== DESIGNER MANAGEMENT ====================
 router.get('/alldesigners',  getAllDesigners);
 router.get('/designers/:designerId',  getDesignerDetails);
+
+// Get user's wallet balance
+router.get('/wallet/:userId', getUserWallet);
+
+// Get user's transaction history
+router.get('/wallet/:userId/transactions', getUserTransactions);
+
+// ==================== POST APIs ====================
+
+// Admin add money to user wallet
+router.post('/wallet/:userId/add-money', adminAddMoney);
+
+// Admin deduct money from user wallet
+router.post('/wallet/:userId/deduct', adminDeductMoney);
+
+// Admin refund to user wallet
+router.post('/wallet/:userId/refund', adminRefundWallet);
 
 export default router;

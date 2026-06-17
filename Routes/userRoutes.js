@@ -52,7 +52,11 @@ import {
 
   getActiveLatestDesigns,
   getFullMenu,
-  searchProducts
+  searchProducts,
+  getWalletData,
+  checkBalance,
+  addMoneyToWallet,
+  payFromWallet
 } from '../Controller/UserController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { upload } from '../config/multerConfig.js';
@@ -107,6 +111,13 @@ router.get('/notificationlabels', getActiveNotifications);
 // Upcoming collections
 router.get('/upcoming', getUpcomingCollections);
 router.get('/upcoming/:id', getUpcomingCollectionDetails);
+
+// Wallet  Routes  
+router.get('/wallet/:userId', getWalletData);
+router.get('/wallet/:userId/balance', checkBalance);
+router.post('/wallet/:userId/add-money', addMoneyToWallet);
+router.post('/wallet/:userId/pay', payFromWallet);
+
 
 // Profile routes (no authentication)
 router.get('/:userId', getUserById);

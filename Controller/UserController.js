@@ -3594,3 +3594,352 @@ export const getActiveNotifications = async (req, res) => {
     });
   }
 };
+
+
+// ====================== WALLET =====================
+
+export const getWalletData = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { 
+      page = 1, 
+      limit = 20, 
+      type, 
+      startDate, 
+      endDate,
+      sort = 'desc'
+    } = req.query;
+    
+    // Get user with wallet
+    const user = await User.findById(userId).select('wallet name email mobile profileImage');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    const transactions = user.wallet.transactions || [];
+    
+    // ==================== 1. WALLET BALANCE & INFO ====================
+    const balance = user.wallet.balance || 0;
+    const isActive = user.wallet.isActive !== undefined ? user.wallet.isActive : true;
+    
+    // ==================== 2. TRANSACTION STATISTICS ====================
+    const totalCredits = transactions
+      .filter(t => t.type === 'credit' || t.type === 'refund' || t.type === 'cashback')
+      .reduce((sum, t) => sum + t.amount, 0);
+    
+    const totalDebits = transactions
+      .filter(t => t.type === 'debit')
+      .reduce((sum, t) => sum + t.amount, 0);
+    
+    // ==================== 3. DAILY & MONTHLY SUMMARY ====================
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    
+    const todayTransactions = transactions.filter(t => new Date(t.createdAt) >= today);
+    const todayCredits = todayTransactions.filter(t => t.type === 'credit' || t.type === 'refund' || t.type === 'cashback')
+      .reduce((sum, t) => sum + t.amount, 0);
+    const todayDebits = todayTransactions.filter(t => t.type === 'debit')
+      .reduce((sum, t) => sum + t.amount, 0);
+    
+    const thisMonthTransactions = transactions.filter(t => new Date(t.createdAt) >= thisMonth);
+    const thisMonthCredits = thisMonthTransactions.filter(t => t.type === 'credit' || t.type === 'refund' || t.type === 'cashback')
+      .reduce((sum, t) => sum + t.amount, 0);
+    const thisMonthDebits = thisMonthTransactions.filter(t => t.type === 'debit')
+      .reduce((sum, t) => sum + t.amount, 0);
+    
+    // ==================== 4. FILTER & PAGINATE TRANSACTIONS ====================
+    let filteredTransactions = [...transactions];
+    
+    if (type && ['credit', 'debit', 'refund', 'cashback'].includes(type)) {
+      filteredTransactions = filteredTransactions.filter(t => t.type === type);
+    }
+    
+    if (startDate || endDate) {
+      filteredTransactions = filteredTransactions.filter(t => {
+        const date = new Date(t.createdAt);
+        if (startDate && new Date(startDate) > date) return false;
+        if (endDate && new Date(endDate) < date) return false;
+        return true;
+      });
+    }
+    
+    filteredTransactions.sort((a, b) => {
+      const dateA = new Date(a.createdAt);
+      const dateB = new Date(b.createdAt);
+      return sort === 'desc' ? dateB - dateA : dateA - dateB;
+    });
+    
+    const total = filteredTransactions.length;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const paginatedTransactions = filteredTransactions.slice(skip, skip + parseInt(limit));
+    
+    // ==================== 5. TRANSACTION TYPE BREAKDOWN ====================
+    const typeBreakdown = {
+      credit: transactions.filter(t => t.type === 'credit').length,
+      debit: transactions.filter(t => t.type === 'debit').length,
+      refund: transactions.filter(t => t.type === 'refund').length,
+      cashback: transactions.filter(t => t.type === 'cashback').length
+    };
+    
+    // ==================== 6. RESPONSE ====================
+    return res.status(200).json({
+      success: true,
+      data: {
+        // User Info
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          mobile: user.mobile,
+          profileImage: user.profileImage
+        },
+        
+        // Wallet Balance
+        wallet: {
+          balance: balance,
+          isActive: isActive,
+          lastUpdated: user.wallet.updatedAt || user.updatedAt
+        },
+        
+        // Summary Statistics
+        summary: {
+          totalCredits: totalCredits,
+          totalDebits: totalDebits,
+          netBalance: totalCredits - totalDebits,
+          totalTransactions: transactions.length,
+          typeBreakdown: typeBreakdown
+        },
+        
+        // Daily & Monthly Stats
+        stats: {
+          today: {
+            credits: todayCredits,
+            debits: todayDebits,
+            net: todayCredits - todayDebits,
+            count: todayTransactions.length
+          },
+          thisMonth: {
+            credits: thisMonthCredits,
+            debits: thisMonthDebits,
+            net: thisMonthCredits - thisMonthDebits,
+            count: thisMonthTransactions.length
+          }
+        },
+        
+        // Transactions (Paginated)
+        transactions: {
+          data: paginatedTransactions,
+          pagination: {
+            total: total,
+            page: parseInt(page),
+            pages: Math.ceil(total / parseInt(limit)),
+            limit: parseInt(limit),
+            hasNextPage: skip + parseInt(limit) < total,
+            hasPrevPage: parseInt(page) > 1
+          }
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('getWalletData error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// ==================== KEEP SEPARATE CONTROLLERS FOR SPECIFIC NEEDS ====================
+
+// Simple balance check (lightweight)
+export const checkBalance = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const user = await User.findById(userId).select('wallet.balance wallet.isActive');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    return res.status(200).json({
+      success: true,
+      data: {
+        balance: user.wallet.balance || 0,
+        isActive: user.wallet.isActive !== undefined ? user.wallet.isActive : true
+      }
+    });
+    
+  } catch (error) {
+    console.error('checkBalance error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Add money to wallet
+export const addMoneyToWallet = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { amount, description, paymentMethod = 'manual' } = req.body;
+    
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid amount is required'
+      });
+    }
+    
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    if (user.wallet.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'Wallet is currently inactive'
+      });
+    }
+    
+    const newBalance = user.wallet.balance + amount;
+    
+    const transaction = {
+      type: 'credit',
+      amount: amount,
+      description: description || `Money added via ${paymentMethod}`,
+      referenceType: 'recharge',
+      status: 'completed',
+      balance: newBalance
+    };
+    
+    user.wallet.transactions.push(transaction);
+    user.wallet.balance = newBalance;
+    user.wallet.updatedAt = new Date();
+    
+    await user.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: `₹${amount} added to wallet successfully`,
+      data: {
+        balance: user.wallet.balance,
+        transaction: {
+          id: transaction._id,
+          amount: transaction.amount,
+          type: transaction.type,
+          description: transaction.description,
+          balance: transaction.balance,
+          createdAt: transaction.createdAt
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('addMoneyToWallet error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Pay from wallet
+export const payFromWallet = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { amount, orderId, description } = req.body;
+    
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid amount is required'
+      });
+    }
+    
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    if (user.wallet.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'Wallet is currently inactive'
+      });
+    }
+    
+    if (user.wallet.balance < amount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient wallet balance',
+        data: {
+          available: user.wallet.balance,
+          required: amount,
+          shortfall: amount - user.wallet.balance
+        }
+      });
+    }
+    
+    const newBalance = user.wallet.balance - amount;
+    
+    const transaction = {
+      type: 'debit',
+      amount: amount,
+      description: description || `Payment for order ${orderId || ''}`,
+      referenceId: orderId || null,
+      referenceType: 'order',
+      status: 'completed',
+      balance: newBalance
+    };
+    
+    user.wallet.transactions.push(transaction);
+    user.wallet.balance = newBalance;
+    user.wallet.updatedAt = new Date();
+    
+    await user.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: `₹${amount} deducted from wallet`,
+      data: {
+        balance: user.wallet.balance,
+        transaction: {
+          id: transaction._id,
+          amount: transaction.amount,
+          type: transaction.type,
+          description: transaction.description,
+          referenceId: transaction.referenceId,
+          balance: transaction.balance,
+          createdAt: transaction.createdAt
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('payFromWallet error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};

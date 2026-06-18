@@ -138,7 +138,13 @@ import {
   getUserTransactions,
   adminAddMoney,
   adminDeductMoney,
-  adminRefundWallet
+  adminRefundWallet,
+
+  // stylist Bookings
+  getAllStylistBookings,
+  getStylistBookingByIdAdmin,
+  updateStylistBookingAdmin,
+  deleteStylistBookingAdmin
 } from '../Controller/adminController.js';
 
 const router = express.Router();
@@ -299,5 +305,11 @@ router.post('/wallet/:userId/deduct', adminDeductMoney);
 
 // Admin refund to user wallet
 router.post('/wallet/:userId/refund', adminRefundWallet);
+
+// ==================== Stylist Bookings ===================
+router.get('/stylist-bookings', getAllStylistBookings);
+router.get('/stylist-booking/:bookingId', getStylistBookingByIdAdmin);
+router.put('/stylist-booking/:bookingId', updateStylistBookingAdmin);
+router.delete('/stylist-booking/:bookingId', deleteStylistBookingAdmin);
 
 export default router;

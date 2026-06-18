@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import connectDatabase from './db/connectDatabase.js';
 import path from 'path';
 import UserRoutes from './Routes/userRoutes.js';
+import stylistRoutes from './Routes/stylistRoutes.js';
 import { fileURLToPath } from 'url';
 import adminRoutes from './Routes/adminRoutes.js';
 import designerRoutes from './Routes/designerRoutes.js';
@@ -67,6 +68,7 @@ app.get('/', (req, res) => {
 app.use('/api/users', UserRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/designer', designerRoutes);
+app.use('/api/stylist', stylistRoutes)
 
 app.get('/api/debug/token', (req, res) => {
   const authHeader = req.headers.authorization;

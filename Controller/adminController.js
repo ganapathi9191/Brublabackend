@@ -8,6 +8,7 @@ import Product from '../Models/Product.js';
 import UpcomingCollection from '../Models/UpcomingCollection.js';
 import RecommendedProduct from '../Models/RecommendedProducts.js';
 import LatestDesign from '../Models/LatestDesign.js';
+import StylistBooking from '../Models/StylistBooking.js';
 import Order from '../Models/Order.js';
 import Banner from '../Models/Banner.js';
 import Category from '../Models/Category.js';
@@ -5543,5 +5544,179 @@ export const adminRefundWallet = async (req, res) => {
       success: false,
       message: error.message
     });
+  }
+};
+
+
+// ==================== GET ALL STYLIST BOOKINGS ====================
+
+export const getAllStylistBookings = async (req, res) => {
+  try {
+    const { status, stylistId, userId, date, fromDate, toDate, search, page = 1, limit = 20, sortBy = 'newest' } = req.query;
+
+    const query = {};
+    if (status && ['pending','accepted','rejected','cancelled','completed'].includes(status)) query.status = status;
+    if (stylistId) query.stylistId = stylistId;
+    if (userId) query.userId = userId;
+    if (date) query.date = date;
+    if (fromDate || toDate) {
+      query.date = {};
+      if (fromDate) query.date.$gte = fromDate;
+      if (toDate) query.date.$lte = toDate;
+    }
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { mobile: { $regex: search, $options: 'i' } },
+        { location: { $regex: search, $options: 'i' } },
+        { reasonForBooking: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 20;
+    const skip = (pageNum - 1) * limitNum;
+
+    const sortMap = { newest: -1, oldest: 1, date_asc: 1, date_desc: -1, amount_asc: 1, amount_desc: -1 };
+    const sort = { createdAt: sortMap[sortBy] || -1 };
+    if (sortBy === 'date_asc' || sortBy === 'date_desc') sort.date = sortMap[sortBy];
+    if (sortBy === 'amount_asc' || sortBy === 'amount_desc') sort.amount = sortMap[sortBy];
+
+    const [bookings, total, stats, revenueStats] = await Promise.all([
+      StylistBooking.find(query)
+        .populate('userId', 'name email mobile profileImage')
+        .populate('stylistId', 'name email mobile profileImage')
+        .sort(sort).skip(skip).limit(limitNum),
+      StylistBooking.countDocuments(query),
+      StylistBooking.aggregate([
+        { $facet: {
+          total: [{ $count: 'count' }],
+          pending: [{ $match: { status: 'pending' } }, { $count: 'count' }],
+          accepted: [{ $match: { status: 'accepted' } }, { $count: 'count' }],
+          rejected: [{ $match: { status: 'rejected' } }, { $count: 'count' }],
+          completed: [{ $match: { status: 'completed' } }, { $count: 'count' }],
+          cancelled: [{ $match: { status: 'cancelled' } }, { $count: 'count' }]
+        }}
+      ]),
+      StylistBooking.aggregate([
+        { $match: { status: 'completed' } },
+        { $group: { _id: null, totalRevenue: { $sum: '$amount' }, avgRevenue: { $avg: '$amount' }, count: { $sum: 1 } } }
+      ])
+    ]);
+
+    const statsObj = { total: 0, pending: 0, accepted: 0, rejected: 0, completed: 0, cancelled: 0 };
+    stats[0]?.total?.[0] && (statsObj.total = stats[0].total[0].count);
+    stats[0]?.pending?.[0] && (statsObj.pending = stats[0].pending[0].count);
+    stats[0]?.accepted?.[0] && (statsObj.accepted = stats[0].accepted[0].count);
+    stats[0]?.rejected?.[0] && (statsObj.rejected = stats[0].rejected[0].count);
+    stats[0]?.completed?.[0] && (statsObj.completed = stats[0].completed[0].count);
+    stats[0]?.cancelled?.[0] && (statsObj.cancelled = stats[0].cancelled[0].count);
+
+    const revenue = revenueStats[0] || { totalRevenue: 0, avgRevenue: 0, count: 0 };
+
+    return res.status(200).json({
+      success: true,
+      count: bookings.length,
+      total,
+      page: pageNum,
+      pages: Math.ceil(total / limitNum),
+      filters: { status: status || 'all', stylistId: stylistId || 'all', userId: userId || 'all', date: date || 'all', fromDate: fromDate || null, toDate: toDate || null, search: search || null },
+      stats: { ...statsObj, revenue: { totalRevenue: revenue.totalRevenue, averageRevenue: revenue.avgRevenue || 0, count: revenue.count } },
+      stylistBookings: bookings
+    });
+
+  } catch (error) {
+    console.error('getAllStylistBookings error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== GET SINGLE STYLIST BOOKING (ADMIN) ====================
+
+export const getStylistBookingByIdAdmin = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+
+    const booking = await StylistBooking.findById(bookingId)
+      .populate('userId', 'name email mobile profileImage')
+      .populate('stylistId', 'name email mobile profileImage');
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Stylist booking not found' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: booking
+    });
+
+  } catch (error) {
+    console.error('getStylistBookingByIdAdmin error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== UPDATE STYLIST BOOKING (ADMIN) ====================
+
+export const updateStylistBookingAdmin = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { status, amount, paymentStatus, stylistId } = req.body;
+
+    const booking = await StylistBooking.findById(bookingId);
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Stylist booking not found' });
+    }
+
+    // Admin can update even accepted bookings
+    if (status) booking.status = status;
+    if (amount) booking.amount = amount;
+    if (paymentStatus) booking.paymentStatus = paymentStatus;
+    
+    if (stylistId) {
+      const stylist = await User.findById(stylistId);
+      if (!stylist || stylist.role !== 'Stylist') {
+        return res.status(404).json({ success: false, message: 'Stylist not found' });
+      }
+      booking.stylistId = stylistId;
+    }
+
+    await booking.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Stylist booking updated successfully',
+      data: booking
+    });
+
+  } catch (error) {
+    console.error('updateStylistBookingAdmin error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== DELETE STYLIST BOOKING (ADMIN) ====================
+
+export const deleteStylistBookingAdmin = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+
+    const booking = await StylistBooking.findById(bookingId);
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Stylist booking not found' });
+    }
+
+    await StylistBooking.findByIdAndDelete(bookingId);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Stylist booking deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('deleteStylistBookingAdmin error:', error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };

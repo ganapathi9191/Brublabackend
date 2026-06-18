@@ -7,6 +7,7 @@ import RecommendedProduct from '../Models/RecommendedProducts.js';
 import LoginScreenMedia from '../Models/LoginScreenMedia.js';
 import Collection from '../Models/Collection.js';
 import UpcomingCollection from '../Models/UpcomingCollection.js';
+import StylistBooking from '../Models/StylistBooking.js';
 import LatestDesign from '../Models/LatestDesign.js';
 import { getFileUrl, deleteFile } from '../utils/fileUtils.js';
 import Product from '../Models/Product.js';
@@ -3941,5 +3942,326 @@ export const payFromWallet = async (req, res) => {
       success: false,
       message: error.message
     });
+  }
+};
+
+
+// ==================== BOOK STYLIST ====================
+
+export const bookStylist = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { 
+      stylistId, name, mobile, location, reasonForBooking, 
+      date, fromTime, toTime, amount 
+    } = req.body;
+
+    // ✅ Validate required fields
+    if (!stylistId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Stylist ID is required'
+      });
+    }
+
+    if (!location || !reasonForBooking || !date || !fromTime || !toTime) {
+      return res.status(400).json({
+        success: false,
+        message: 'All fields are required: location, reasonForBooking, date, fromTime, toTime'
+      });
+    }
+
+    // Check if user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Check if stylist exists and has role 'Stylist'
+    const stylist = await User.findById(stylistId);
+    if (!stylist) {
+      return res.status(404).json({ success: false, message: 'Stylist not found' });
+    }
+
+    if (stylist.role !== 'Stylist') {
+      return res.status(400).json({
+        success: false,
+        message: 'Selected user is not a stylist'
+      });
+    }
+
+    // Check if stylist is available at the given time
+    const existingBooking = await StylistBooking.findOne({
+      stylistId,
+      date,
+      status: { $in: ['pending', 'accepted'] },
+      $or: [
+        { fromTime: { $lt: toTime, $gte: fromTime } },
+        { toTime: { $gt: fromTime, $lte: toTime } }
+      ]
+    });
+
+    if (existingBooking) {
+      return res.status(400).json({
+        success: false,
+        message: 'Stylist is already booked at this time'
+      });
+    }
+
+    // Create booking
+    const booking = new StylistBooking({
+      userId,
+      stylistId,
+      name: name || user.name,
+      mobile: mobile || user.mobile,
+      location,
+      reasonForBooking,
+      date,
+      fromTime,
+      toTime,
+      amount: amount || 0,
+      status: 'pending',
+      paymentStatus: 'pending'
+    });
+
+    await booking.save();
+
+    // Populate the booking
+    const populatedBooking = await StylistBooking.findById(booking._id)
+      .populate('userId', 'name email mobile profileImage')
+      .populate('stylistId', 'name email mobile profileImage');
+
+    return res.status(201).json({
+      success: true,
+      message: 'Stylist booked successfully',
+      data: populatedBooking
+    });
+
+  } catch (error) {
+    console.error('bookStylist error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== GET USER STYLIST BOOKINGS ====================
+
+export const getUserStylistBookings = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { status, page = 1, limit = 20 } = req.query;
+
+    const query = { userId };
+    if (status && ['pending', 'accepted', 'rejected', 'cancelled', 'completed'].includes(status)) {
+      query.status = status;
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const bookings = await StylistBooking.find(query)
+      .populate('stylistId', 'name email mobile profileImage')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await StylistBooking.countDocuments(query);
+
+    return res.status(200).json({
+      success: true,
+      count: bookings.length,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / parseInt(limit)),
+      stylistBookings: bookings
+    });
+
+  } catch (error) {
+    console.error('getUserStylistBookings error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== GET SINGLE STYLIST BOOKING ====================
+
+export const getStylistBookingById = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+
+    const booking = await StylistBooking.findById(bookingId)
+      .populate('userId', 'name email mobile profileImage')
+      .populate('stylistId', 'name email mobile profileImage');
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Stylist booking not found' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: booking
+    });
+
+  } catch (error) {
+    console.error('getStylistBookingById error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== CANCEL STYLIST BOOKING ====================
+
+export const cancelStylistBooking = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { reason } = req.body;
+
+    const booking = await StylistBooking.findById(bookingId);
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Stylist booking not found' });
+    }
+
+    if (booking.status === 'accepted') {
+      return res.status(400).json({
+        success: false,
+        message: 'Booking has been accepted and cannot be cancelled. Please contact stylist directly.'
+      });
+    }
+
+    if (booking.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Completed bookings cannot be cancelled'
+      });
+    }
+
+    if (booking.status === 'cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: 'Booking is already cancelled'
+      });
+    }
+
+    if (booking.status === 'rejected') {
+      return res.status(400).json({
+        success: false,
+        message: 'Booking is already rejected'
+      });
+    }
+
+    booking.status = 'cancelled';
+    booking.rejectionReason = reason || 'Cancelled by user';
+    await booking.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Stylist booking cancelled successfully',
+      data: booking
+    });
+
+  } catch (error) {
+    console.error('cancelStylistBooking error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== UPDATE STYLIST BOOKING ====================
+
+export const updateStylistBooking = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { date, fromTime, toTime, reasonForBooking, location } = req.body;
+
+    const booking = await StylistBooking.findById(bookingId);
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Stylist booking not found' });
+    }
+
+    if (booking.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `Booking cannot be modified. Current status: ${booking.status}`
+      });
+    }
+
+    if (date || fromTime || toTime) {
+      const newDate = date || booking.date;
+      const newFromTime = fromTime || booking.fromTime;
+      const newToTime = toTime || booking.toTime;
+
+      const existingBooking = await StylistBooking.findOne({
+        stylistId: booking.stylistId,
+        date: newDate,
+        status: { $in: ['pending', 'accepted'] },
+        _id: { $ne: bookingId },
+        $or: [
+          { fromTime: { $lt: newToTime, $gte: newFromTime } },
+          { toTime: { $gt: newFromTime, $lte: newToTime } }
+        ]
+      });
+
+      if (existingBooking) {
+        return res.status(400).json({
+          success: false,
+          message: 'Stylist is already booked at the new time'
+        });
+      }
+
+      if (date) booking.date = date;
+      if (fromTime) booking.fromTime = fromTime;
+      if (toTime) booking.toTime = toTime;
+    }
+
+    if (reasonForBooking) booking.reasonForBooking = reasonForBooking;
+    if (location) booking.location = location;
+
+    await booking.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Stylist booking updated successfully',
+      data: booking
+    });
+
+  } catch (error) {
+    console.error('updateStylistBooking error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== DELETE STYLIST BOOKING ====================
+
+export const deleteStylistBooking = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+
+    const booking = await StylistBooking.findById(bookingId);
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: 'Stylist booking not found' });
+    }
+
+    if (booking.status === 'accepted') {
+      return res.status(400).json({
+        success: false,
+        message: 'Accepted bookings cannot be deleted'
+      });
+    }
+
+    if (booking.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Completed bookings cannot be deleted'
+      });
+    }
+
+    await StylistBooking.findByIdAndDelete(bookingId);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Stylist booking deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('deleteStylistBooking error:', error);
+    return res.status(500).json({ success: false, message: error.message });
   }
 };

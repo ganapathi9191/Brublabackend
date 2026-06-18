@@ -56,7 +56,15 @@ import {
   getWalletData,
   checkBalance,
   addMoneyToWallet,
-  payFromWallet
+  payFromWallet,
+
+  // Stylist 
+  bookStylist,
+  getUserStylistBookings,
+  getStylistBookingById,
+  cancelStylistBooking,
+  updateStylistBooking,
+  deleteStylistBooking
 } from '../Controller/UserController.js';
 import { authenticateToken } from '../middleware/authMiddleware.js';
 import { upload } from '../config/multerConfig.js';
@@ -117,6 +125,14 @@ router.get('/wallet/:userId', getWalletData);
 router.get('/wallet/:userId/balance', checkBalance);
 router.post('/wallet/:userId/add-money', addMoneyToWallet);
 router.post('/wallet/:userId/pay', payFromWallet);
+
+// Stylist Routes
+router.post('/:userId/book-stylist', bookStylist);
+router.get('/:userId/stylist-bookings', getUserStylistBookings);
+router.get('/stylist-booking/:bookingId', getStylistBookingById);
+router.put('/stylist-booking/:bookingId', updateStylistBooking);
+router.patch('/stylist-booking/:bookingId/cancel', cancelStylistBooking);
+router.delete('/stylist-booking/:bookingId', deleteStylistBooking);
 
 
 // Profile routes (no authentication)

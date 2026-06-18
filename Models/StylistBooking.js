@@ -1,3 +1,4 @@
+// Models/StylistBooking.js - UPDATED
 import mongoose from "mongoose";
 
 const stylistBookingSchema = new mongoose.Schema(
@@ -5,41 +6,66 @@ const stylistBookingSchema = new mongoose.Schema(
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
+      required: true
     },
-
-    assignedStylist: {
+    stylistId: {  
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      default: null, // ✅ admin will assign later
+      required: true
     },
-
-    name: String,
-    mobile: String,
-    location: String,
-    reasonForBooking: String,
-    date: String,
-    fromTime: String,
-    toTime: String,
-
+    name: {
+      type: String,
+      required: true
+    },
+    mobile: {
+      type: String,
+      required: true
+    },
+    location: {
+      type: String,
+      required: true
+    },
+    reasonForBooking: {
+      type: String,
+      required: true
+    },
+    date: {
+      type: String,
+      required: true
+    },
+    fromTime: {
+      type: String,
+      required: true
+    },
+    toTime: {
+      type: String,
+      required: true
+    },
     amount: {
       type: Number,
+      default: 0
     },
-
     status: {
       type: String,
-      default: "pending",
+      enum: ['pending', 'accepted', 'rejected', 'cancelled', 'completed'],
+      default: 'pending'
     },
-
+    rejectionReason: {
+      type: String,
+      default: null
+    },
     paymentStatus: {
       type: String,
-      default: "pending",
+      enum: ['pending', 'paid', 'failed'],
+      default: 'pending'
     },
+    bookedAt: {
+      type: Date,
+      default: Date.now
+    }
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
 const StylistBooking = mongoose.model("StylistBooking", stylistBookingSchema);
-
 export default StylistBooking;

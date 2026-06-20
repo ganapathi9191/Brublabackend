@@ -2,6 +2,7 @@ import Admin from '../Models/Admin.js';
 import LoginScreenMedia from '../Models/LoginScreenMedia.js';
 import HomePage from '../Models/HomePage.js';
 import User from '../Models/User.js';
+import { Designer, DesignerSettings } from '../Models/Designer.js';
 import Collection from '../Models/Collection.js';
 import NotificationLabel from '../Models/NotificationLabel.js';
 import Product from '../Models/Product.js';
@@ -2239,65 +2240,180 @@ export const getOrderByIdAdmin = async (req, res) => {
   }
 };
 
+// export const updateOrderStatus = async (req, res) => {
+//   try {
+//     const { orderId } = req.params;
+//     const { orderStatus, paymentStatus, trackingId, estimatedDelivery } = req.body;
+
+//     const order = await Order.findOne({ orderId });
+//     if (!order) {
+//       return res.status(404).json({ success: false, message: 'Order not found' });
+//     }
+
+//     const oldStatus = order.orderStatus;
+//     const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+    
+//     if (orderStatus && !validStatuses.includes(orderStatus)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: `Invalid order status. Must be one of: ${validStatuses.join(', ')}`
+//       });
+//     }
+
+//     // ✅ Update individual item status when order status changes
+//     if (orderStatus) {
+//       order.orderStatus = orderStatus;
+      
+//       // Update all items to the same status
+//       order.items.forEach(item => {
+//         item.status = orderStatus;
+//       });
+//     }
+    
+//     if (paymentStatus) order.paymentStatus = paymentStatus;
+//     if (trackingId) order.trackingId = trackingId;
+//     if (estimatedDelivery) order.estimatedDelivery = new Date(estimatedDelivery);
+    
+//     if (orderStatus === 'delivered') order.deliveredAt = new Date();
+//     if (orderStatus === 'cancelled') order.cancelledAt = new Date();
+
+//     await order.save();
+
+//     return res.status(200).json({
+//       success: true,
+//       message: `Order status updated from ${oldStatus} to ${order.orderStatus}`,
+//       order: {
+//         _id: order._id,
+//         orderId: order.orderId,
+//         orderStatus: order.orderStatus,
+//         items: order.items.map(item => ({
+//           productId: item.productId,
+//           status: item.status  // Now shows correct status
+//         })),
+//         paymentStatus: order.paymentStatus,
+//         trackingId: order.trackingId,
+//         updatedAt: order.updatedAt
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error('updateOrderStatus error:', error);
+//     return res.status(500).json({ success: false, message: error.message });
+//   }
+// };
+
+// Update order status - Automatically triggers cashback on delivery
 export const updateOrderStatus = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { orderStatus, paymentStatus, trackingId, estimatedDelivery } = req.body;
+    const { orderStatus } = req.body;
 
     const order = await Order.findOne({ orderId });
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
-    const oldStatus = order.orderStatus;
-    const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
-    
-    if (orderStatus && !validStatuses.includes(orderStatus)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid order status. Must be one of: ${validStatuses.join(', ')}`
-      });
-    }
+    // ✅ Check if order is being marked as delivered
+    const isDelivered = orderStatus === 'delivered' && order.orderStatus !== 'delivered';
 
-    // ✅ Update individual item status when order status changes
-    if (orderStatus) {
-      order.orderStatus = orderStatus;
-      
-      // Update all items to the same status
-      order.items.forEach(item => {
-        item.status = orderStatus;
-      });
+    // Update order status
+    order.orderStatus = orderStatus;
+    if (orderStatus === 'delivered') {
+      order.deliveredAt = new Date();
     }
-    
-    if (paymentStatus) order.paymentStatus = paymentStatus;
-    if (trackingId) order.trackingId = trackingId;
-    if (estimatedDelivery) order.estimatedDelivery = new Date(estimatedDelivery);
-    
-    if (orderStatus === 'delivered') order.deliveredAt = new Date();
-    if (orderStatus === 'cancelled') order.cancelledAt = new Date();
-
     await order.save();
+
+    // ✅ AUTOMATIC CASHBACK - Trigger when order is delivered
+    if (isDelivered) {
+      await processCashbackForOrder(order);
+    }
 
     return res.status(200).json({
       success: true,
-      message: `Order status updated from ${oldStatus} to ${order.orderStatus}`,
-      order: {
-        _id: order._id,
-        orderId: order.orderId,
-        orderStatus: order.orderStatus,
-        items: order.items.map(item => ({
-          productId: item.productId,
-          status: item.status  // Now shows correct status
-        })),
-        paymentStatus: order.paymentStatus,
-        trackingId: order.trackingId,
-        updatedAt: order.updatedAt
-      }
+      message: `Order status updated to ${orderStatus}`,
+      data: order
     });
 
   } catch (error) {
     console.error('updateOrderStatus error:', error);
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== CASHBACK PROCESSING FUNCTION ====================
+
+const processCashbackForOrder = async (order) => {
+  try {
+    console.log(`🔄 Processing cashback for order: ${order.orderId}`);
+
+    // Get settings
+    const settings = await DesignerSettings.findOne();
+    if (!settings) {
+      console.log('❌ Designer settings not found');
+      return;
+    }
+
+    const { productFee, cashbackPercentage, salesThresholdForCashback } = settings;
+
+    // Process each item in the order
+    for (const item of order.items) {
+      const product = await Product.findById(item.productId);
+      
+      // ✅ Only process designer products
+      if (!product || product.createdBy !== 'designer') {
+        continue;
+      }
+
+      const designer = await Designer.findById(product.creatorId);
+      if (!designer) {
+        continue;
+      }
+
+      // ✅ Check if cashback already given for this product
+      const cashbackGiven = designer.wallet.transactions.some(
+        t => t.referenceId === product._id.toString() && 
+             t.type === 'cashback' && 
+             t.status === 'completed'
+      );
+
+      if (cashbackGiven) {
+        console.log(`⚠️ Cashback already given for product: ${product.name}`);
+        continue;
+      }
+
+      // ✅ Count total delivered orders for this product
+      const deliveredCount = await Order.countDocuments({
+        'items.productId': product._id,
+        orderStatus: 'delivered'
+      });
+
+      console.log(`📊 Product: ${product.name}, Delivered: ${deliveredCount}, Threshold: ${salesThresholdForCashback}`);
+
+      // ✅ Check if threshold met
+      if (deliveredCount >= salesThresholdForCashback) {
+        // Calculate cashback
+        const cashbackAmount = (productFee * cashbackPercentage) / 100;
+
+        // ✅ Add cashback to designer's wallet
+        designer.wallet.transactions.push({
+          type: 'cashback',
+          amount: cashbackAmount,
+          description: `${cashbackPercentage}% cashback (${deliveredCount} sales) for ${product.name}`,
+          referenceId: product._id.toString(),
+          referenceType: 'cashback',
+          status: 'completed',
+          balance: designer.wallet.balance + cashbackAmount
+        });
+
+        designer.wallet.balance += cashbackAmount;
+        designer.cashbackReceived = (designer.cashbackReceived || 0) + cashbackAmount;
+        await designer.save();
+
+        console.log(`✅ Cashback added for product: ${product.name}, Amount: ₹${cashbackAmount}`);
+      }
+    }
+  } catch (error) {
+    console.error('processCashbackForOrder error:', error);
   }
 };
 
@@ -5061,28 +5177,146 @@ export const getAllDesigners = async (req, res) => {
   }
 };
 
-// Get designer details with their products
+// Get designer settings (Both Admin & Designer can view)
+export const getDesignerSettings = async (req, res) => {
+  try {
+    let settings = await DesignerSettings.findOne();
+    
+    if (!settings) {
+      settings = await DesignerSettings.create({
+        productFee: 500,
+        cashbackPercentage: 60,
+        salesThresholdForCashback: 100
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: settings
+    });
+  } catch (error) {
+    console.error('getDesignerSettings error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const updateDesignerSettings = async (req, res) => {
+  try {
+    // Check if user is admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Only admin can update designer settings.'
+      });
+    }
+
+    const { productFee, cashbackPercentage, salesThresholdForCashback } = req.body;
+    
+    let settings = await DesignerSettings.findOne();
+    
+    if (!settings) {
+      settings = new DesignerSettings();
+    }
+
+    if (productFee !== undefined) settings.productFee = productFee;
+    if (cashbackPercentage !== undefined) settings.cashbackPercentage = cashbackPercentage;
+    if (salesThresholdForCashback !== undefined) settings.salesThresholdForCashback = salesThresholdForCashback;
+    
+    settings.updatedBy = req.user.id;
+    settings.updatedAt = new Date();
+    
+    await settings.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Designer settings updated successfully',
+      data: settings
+    });
+  } catch (error) {
+    console.error('updateDesignerSettings error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Approve designer
+export const approveDesigner = async (req, res) => {
+  try {
+    const { designerId } = req.params;
+
+    const designer = await Designer.findById(designerId);
+    if (!designer) {
+      return res.status(404).json({ success: false, message: 'Designer not found' });
+    }
+
+    if (designer.isApproved) {
+      return res.status(400).json({ success: false, message: 'Designer is already approved' });
+    }
+
+    designer.isApproved = true;
+    designer.rejectionReason = null;
+    await designer.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Designer approved successfully',
+      data: designer
+    });
+
+  } catch (error) {
+    console.error('approveDesigner error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+// Reject designer
+export const rejectDesigner = async (req, res) => {
+  try {
+    const { designerId } = req.params;
+    const { rejectionReason } = req.body;
+
+    if (!rejectionReason) {
+      return res.status(400).json({ success: false, message: 'Rejection reason is required' });
+    }
+
+    const designer = await Designer.findById(designerId);
+    if (!designer) {
+      return res.status(404).json({ success: false, message: 'Designer not found' });
+    }
+
+    designer.isApproved = false;
+    designer.rejectionReason = rejectionReason;
+    await designer.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Designer rejected successfully',
+      data: designer
+    });
+
+  } catch (error) {
+    console.error('rejectDesigner error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Get single designer details
 export const getDesignerDetails = async (req, res) => {
   try {
     const { designerId } = req.params;
-    
-    const designer = await User.findById(designerId)
-      .select('-otp -otpExpires -authToken -authTokenExpires -deleteToken -deleteTokenExpiration');
-    
+
+    const designer = await Designer.findById(designerId)
+      .select('-otp -otpExpires -authToken -authTokenExpires');
+
     if (!designer) {
-      return res.status(404).json({
-        success: false,
-        message: 'Designer not found'
-      });
+      return res.status(404).json({ success: false, message: 'Designer not found' });
     }
-    
+
     const products = await Product.find({ 
       creatorId: designerId,
       createdBy: 'designer'
-    })
-      .sort({ createdAt: -1 })
-      .select('name displayPrice approvalStatus isActive rejectionReason createdAt');
-    
+    }).sort({ createdAt: -1 });
+
     const stats = {
       totalProducts: products.length,
       pending: products.filter(p => p.approvalStatus === 'pending').length,
@@ -5090,29 +5324,75 @@ export const getDesignerDetails = async (req, res) => {
       rejected: products.filter(p => p.approvalStatus === 'rejected').length,
       active: products.filter(p => p.isActive === true).length
     };
-    
+
     return res.status(200).json({
       success: true,
       designer: {
-        id: designer._id,
-        name: designer.name,
-        email: designer.email,
-        mobile: designer.mobile,
-        profileImage: designer.profileImage,
-        about: designer.about,
-        brandName: designer.brandName,
-        isActive: designer.isActive,
-        createdAt: designer.createdAt
+        ...designer.toObject(),
+        walletBalance: designer.wallet?.balance || 0
       },
       stats,
       products
     });
-    
+
   } catch (error) {
     console.error('getDesignerDetails error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// // Get designer details with their products
+// export const getDesignerDetails = async (req, res) => {
+//   try {
+//     const { designerId } = req.params;
+    
+//     const designer = await User.findById(designerId)
+//       .select('-otp -otpExpires -authToken -authTokenExpires -deleteToken -deleteTokenExpiration');
+    
+//     if (!designer) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Designer not found'
+//       });
+//     }
+    
+//     const products = await Product.find({ 
+//       creatorId: designerId,
+//       createdBy: 'designer'
+//     })
+//       .sort({ createdAt: -1 })
+//       .select('name displayPrice approvalStatus isActive rejectionReason createdAt');
+    
+//     const stats = {
+//       totalProducts: products.length,
+//       pending: products.filter(p => p.approvalStatus === 'pending').length,
+//       approved: products.filter(p => p.approvalStatus === 'approved').length,
+//       rejected: products.filter(p => p.approvalStatus === 'rejected').length,
+//       active: products.filter(p => p.isActive === true).length
+//     };
+    
+//     return res.status(200).json({
+//       success: true,
+//       designer: {
+//         id: designer._id,
+//         name: designer.name,
+//         email: designer.email,
+//         mobile: designer.mobile,
+//         profileImage: designer.profileImage,
+//         about: designer.about,
+//         brandName: designer.brandName,
+//         isActive: designer.isActive,
+//         createdAt: designer.createdAt
+//       },
+//       stats,
+//       products
+//     });
+    
+//   } catch (error) {
+//     console.error('getDesignerDetails error:', error);
+//     return res.status(500).json({ success: false, message: error.message });
+//   }
+// };
 
 // Delete designer product (admin forced delete)
 export const adminDeleteDesignerProduct = async (req, res) => {
@@ -5162,6 +5442,148 @@ export const adminDeleteDesignerProduct = async (req, res) => {
     
   } catch (error) {
     console.error('adminDeleteDesignerProduct error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Admin: Add money to designer wallet
+export const adminAddMoneyToDesigner = async (req, res) => {
+  try {
+    const { designerId } = req.params;
+    const { amount, description } = req.body;
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid amount is required'
+      });
+    }
+
+    const designer = await Designer.findById(designerId);
+    if (!designer) {
+      return res.status(404).json({ success: false, message: 'Designer not found' });
+    }
+
+    if (designer.wallet.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'Wallet is currently inactive'
+      });
+    }
+
+    const newBalance = designer.wallet.balance + amount;
+
+    designer.wallet.transactions.push({
+      type: 'credit',
+      amount: amount,
+      description: description || `Admin added ₹${amount} to wallet`,
+      referenceType: 'admin',
+      status: 'completed',
+      balance: newBalance
+    });
+
+    designer.wallet.balance = newBalance;
+    await designer.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `₹${amount} added to designer's wallet`,
+      data: {
+        balance: designer.wallet.balance
+      }
+    });
+
+  } catch (error) {
+    console.error('adminAddMoneyToDesigner error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Admin: Deduct money from designer wallet
+export const adminDeductMoneyFromDesigner = async (req, res) => {
+  try {
+    const { designerId } = req.params;
+    const { amount, description } = req.body;
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid amount is required'
+      });
+    }
+
+    const designer = await Designer.findById(designerId);
+    if (!designer) {
+      return res.status(404).json({ success: false, message: 'Designer not found' });
+    }
+
+    if (designer.wallet.balance < amount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Insufficient wallet balance',
+        data: { available: designer.wallet.balance }
+      });
+    }
+
+    if (designer.wallet.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'Wallet is currently inactive'
+      });
+    }
+
+    const newBalance = designer.wallet.balance - amount;
+
+    designer.wallet.transactions.push({
+      type: 'debit',
+      amount: amount,
+      description: description || `Admin deducted ₹${amount} from wallet`,
+      referenceType: 'admin',
+      status: 'completed',
+      balance: newBalance
+    });
+
+    designer.wallet.balance = newBalance;
+    await designer.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `₹${amount} deducted from designer's wallet`,
+      data: {
+        balance: designer.wallet.balance
+      }
+    });
+
+  } catch (error) {
+    console.error('adminDeductMoneyFromDesigner error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Admin: Get designer wallet
+export const getDesignerWallet = async (req, res) => {
+  try {
+    const { designerId } = req.params;
+
+    const designer = await Designer.findById(designerId).select('wallet name email');
+    if (!designer) {
+      return res.status(404).json({ success: false, message: 'Designer not found' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        designer: {
+          id: designer._id,
+          name: designer.name,
+          email: designer.email
+        },
+        wallet: designer.wallet || { balance: 0, transactions: [], isActive: true }
+      }
+    });
+
+  } catch (error) {
+    console.error('getDesignerWallet error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

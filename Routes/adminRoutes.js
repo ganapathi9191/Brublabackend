@@ -130,8 +130,15 @@ import {
   bulkApproveProducts,
   bulkRejectProducts,
   getAllDesigners,
+  approveDesigner,
+  getDesignerSettings,
+  updateDesignerSettings,
+  rejectDesigner,
   getDesignerDetails,
   adminDeleteDesignerProduct,
+  adminAddMoneyToDesigner,
+  adminDeductMoneyFromDesigner,
+  getDesignerWallet,
 
   //Wallet
   getUserWallet,
@@ -285,9 +292,18 @@ router.post('/designer-products/bulk-approve', authenticateToken, bulkApprovePro
 router.post('/designer-products/bulk-reject', authenticateToken, bulkRejectProducts);
 router.delete('/designer-products/:productId', authenticateToken, adminDeleteDesignerProduct);
 
+router.get('/designer-settings', authenticateToken, getDesignerSettings);
+router.put('/designer-settings', authenticateToken, updateDesignerSettings);
 // ==================== DESIGNER MANAGEMENT ====================
 router.get('/alldesigners',  getAllDesigners);
+router.patch('/designers/:designerId/approve', authenticateToken, approveDesigner);
+router.patch('/designers/:designerId/reject', authenticateToken, rejectDesigner);
 router.get('/designers/:designerId',  getDesignerDetails);
+// ==================== DESIGNER WALLET ROUTES ====================
+router.get('/designers/:designerId/wallet', authenticateToken, getDesignerWallet);
+router.post('/designers/:designerId/wallet/add-money', authenticateToken, adminAddMoneyToDesigner);
+router.post('/designers/:designerId/wallet/deduct', authenticateToken, adminDeductMoneyFromDesigner);
+
 
 // Get user's wallet balance
 router.get('/wallet/:userId', getUserWallet);

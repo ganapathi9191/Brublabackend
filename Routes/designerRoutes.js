@@ -56,7 +56,13 @@ import {
   updateDesignerProduct,
   deleteDesignerProduct,
   submitForApproval,
-  getDesignerOrders
+  getDesignerOrders,
+  getDesignerSettings,
+  addMoneyToWallet,
+  getWalletBalance,
+  getCashbackStatus,
+  getProductCashbackStatus
+
 } from '../Controller/DesignerController.js';
 import { authenticateToken, authorizeRoles } from '../middleware/authMiddleware.js';
 import { uploadProductMedia } from '../config/multerConfig.js';
@@ -78,9 +84,20 @@ router.get('/stats', getDesignerStats);
 router.get('/profile', getDesignerProfile);
 router.put('/profile', updateDesignerProfile);
 router.get('/products', getDesignerProducts);
+router.get('/designer-settings', authenticateToken, getDesignerSettings);
+
+// ==================== WALLET ROUTES ====================
+router.post('/wallet/add-money', addMoneyToWallet);
+router.get('/wallet/balance', getWalletBalance);
+
+// Get cashback status for all products
+router.get('/cashback/status', authenticateToken, getCashbackStatus);
+
+// Get cashback status for specific product
+router.get('/cashback/status/:productId', authenticateToken, getProductCashbackStatus);
+
 
 // Products
-
 router.get('/products/:productId', getDesignerProductById);
 router.post('/products', uploadProductMedia, createDesignerProduct);
 router.put('/products/:id', uploadProductMedia, updateDesignerProduct);

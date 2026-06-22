@@ -300,6 +300,8 @@ router.get('/pendingdesginers', getPendingDesigners)
 router.patch('/designers/:designerId/approve', authenticateToken, approveDesigner);
 router.patch('/designers/:designerId/reject', authenticateToken, rejectDesigner);
 router.get('/designers/:designerId',  getDesignerDetails);
+
+
 // ==================== DESIGNER WALLET ROUTES ====================
 router.get('/designers/:designerId/wallet', authenticateToken, getDesignerWallet);
 router.post('/designers/:designerId/wallet/add-money', authenticateToken, adminAddMoneyToDesigner);

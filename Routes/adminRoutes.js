@@ -125,8 +125,6 @@ import {
   // Designer Products
   getAllDesignerProducts,
   getDesignerProductById,
-  approveDesignerProduct,
-  rejectDesignerProduct,
   bulkApproveProducts,
   bulkRejectProducts,
   getAllDesigners,
@@ -152,7 +150,8 @@ import {
   getStylistBookingByIdAdmin,
   updateStylistBookingAdmin,
   deleteStylistBookingAdmin,
-  getPendingDesigners
+  getPendingDesigners,
+  getPendingDesignerProducts
 } from '../Controller/adminController.js';
 
 const router = express.Router();
@@ -285,16 +284,16 @@ router.patch('/notificationlabels/:id/toggle', toggleNotificationById);
 router.patch('/notificationlabels/toggle-section', toggleSection);
 
 // ==================== DESIGNER PRODUCT MANAGEMENT ====================
+router.get('/designer-products/pending', authenticateToken, getPendingDesignerProducts)
 router.get('/designer-products',  getAllDesignerProducts);
 router.get('/designer-products/:productId', getDesignerProductById);
-router.patch('/designer-products/:productId/approve', authenticateToken, approveDesignerProduct);
-router.patch('/designer-products/:productId/reject', authenticateToken, rejectDesignerProduct);
 router.post('/designer-products/bulk-approve', authenticateToken, bulkApproveProducts);
 router.post('/designer-products/bulk-reject', authenticateToken, bulkRejectProducts);
 router.delete('/designer-products/:productId', authenticateToken, adminDeleteDesignerProduct);
 
 router.get('/designer-settings', authenticateToken, getDesignerSettings);
 router.put('/designer-settings', authenticateToken, updateDesignerSettings);
+
 // ==================== DESIGNER MANAGEMENT ====================
 router.get('/alldesigners',  getAllDesigners);
 router.get('/pendingdesginers', getPendingDesigners)

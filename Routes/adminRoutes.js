@@ -151,7 +151,8 @@ import {
   getAllStylistBookings,
   getStylistBookingByIdAdmin,
   updateStylistBookingAdmin,
-  deleteStylistBookingAdmin
+  deleteStylistBookingAdmin,
+  getPendingDesigners
 } from '../Controller/adminController.js';
 
 const router = express.Router();
@@ -296,6 +297,7 @@ router.get('/designer-settings', authenticateToken, getDesignerSettings);
 router.put('/designer-settings', authenticateToken, updateDesignerSettings);
 // ==================== DESIGNER MANAGEMENT ====================
 router.get('/alldesigners',  getAllDesigners);
+router.get('/pendingdesginers', getPendingDesigners)
 router.patch('/designers/:designerId/approve', authenticateToken, approveDesigner);
 router.patch('/designers/:designerId/reject', authenticateToken, rejectDesigner);
 router.get('/designers/:designerId',  getDesignerDetails);

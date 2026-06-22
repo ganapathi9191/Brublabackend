@@ -5144,35 +5144,336 @@ export const bulkRejectProducts = async (req, res) => {
 };
 
 // Get all designers (for filtering)
+// export const getAllDesigners = async (req, res) => {
+//   try {
+//     const designers = await User.find({ role: 'Designer' })
+//       .select('_id name email mobile profileImage isActive createdAt')
+//       .sort({ createdAt: -1 });
+    
+//     // Get product counts for each designer
+//     const designersWithStats = await Promise.all(designers.map(async (designer) => {
+//       const productStats = {
+//         total: await Product.countDocuments({ creatorId: designer._id, createdBy: 'designer' }),
+//         pending: await Product.countDocuments({ creatorId: designer._id, approvalStatus: 'pending' }),
+//         approved: await Product.countDocuments({ creatorId: designer._id, approvalStatus: 'approved' }),
+//         rejected: await Product.countDocuments({ creatorId: designer._id, approvalStatus: 'rejected' })
+//       };
+      
+//       return {
+//         ...designer.toObject(),
+//         productStats
+//       };
+//     }));
+    
+//     return res.status(200).json({
+//       success: true,
+//       count: designersWithStats.length,
+//       designers: designersWithStats
+//     });
+    
+//   } catch (error) {
+//     console.error('getAllDesigners error:', error);
+//     return res.status(500).json({ success: false, message: error.message });
+//   }
+// };
+
 export const getAllDesigners = async (req, res) => {
   try {
-    const designers = await User.find({ role: 'Designer' })
-      .select('_id name email mobile profileImage isActive createdAt')
-      .sort({ createdAt: -1 });
+    const { status, page = 1, limit = 20, search, sortBy = 'newest' } = req.query;
+
+    // Build query
+    const query = {};
     
-    // Get product counts for each designer
+    // Filter by status
+    if (status === 'approved') query.isApproved = true;
+    else if (status === 'pending') query.isApproved = false;
+    else if (status === 'active') query.isActive = true;
+    else if (status === 'inactive') query.isActive = false;
+
+    // Search
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { mobile: { $regex: search, $options: 'i' } },
+        { brandName: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Pagination
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 20;
+    const skip = (pageNum - 1) * limitNum;
+
+    // Sorting
+    let sort = {};
+    switch (sortBy) {
+      case 'newest':
+        sort.createdAt = -1;
+        break;
+      case 'oldest':
+        sort.createdAt = 1;
+        break;
+      case 'name_asc':
+        sort.name = 1;
+        break;
+      case 'name_desc':
+        sort.name = -1;
+        break;
+      case 'products_asc':
+        sort.totalProductsAdded = 1;
+        break;
+      case 'products_desc':
+        sort.totalProductsAdded = -1;
+        break;
+      default:
+        sort.createdAt = -1;
+    }
+
+    // Get designers with all details
+    const designers = await Designer.find(query)
+      .select('-otp -otpExpires -authToken -authTokenExpires')
+      .sort(sort)
+      .skip(skip)
+      .limit(limitNum);
+
+    const total = await Designer.countDocuments(query);
+
+    // Get stats for each designer
     const designersWithStats = await Promise.all(designers.map(async (designer) => {
+      // Product statistics
       const productStats = {
-        total: await Product.countDocuments({ creatorId: designer._id, createdBy: 'designer' }),
-        pending: await Product.countDocuments({ creatorId: designer._id, approvalStatus: 'pending' }),
-        approved: await Product.countDocuments({ creatorId: designer._id, approvalStatus: 'approved' }),
-        rejected: await Product.countDocuments({ creatorId: designer._id, approvalStatus: 'rejected' })
+        total: await Product.countDocuments({ 
+          creatorId: designer._id, 
+          createdBy: 'designer' 
+        }),
+        pending: await Product.countDocuments({ 
+          creatorId: designer._id, 
+          approvalStatus: 'pending' 
+        }),
+        approved: await Product.countDocuments({ 
+          creatorId: designer._id, 
+          approvalStatus: 'approved' 
+        }),
+        rejected: await Product.countDocuments({ 
+          creatorId: designer._id, 
+          approvalStatus: 'rejected' 
+        }),
+        active: await Product.countDocuments({ 
+          creatorId: designer._id, 
+          isActive: true 
+        })
       };
+
+      // Get designer's products for order calculation
+      const designerProducts = await Product.find({ 
+        creatorId: designer._id 
+      }).select('_id');
+      const productIds = designerProducts.map(p => p._id);
+
+      // Get orders containing designer's products
+      const orders = await Order.find({
+        'items.productId': { $in: productIds }
+      });
+
+      // Calculate sales
+      let totalSales = 0;
+      let totalOrders = orders.length;
+      let totalItemsSold = 0;
+
+      orders.forEach(order => {
+        order.items.forEach(item => {
+          if (productIds.some(id => id.toString() === item.productId.toString())) {
+            totalSales += item.price * item.quantity;
+            totalItemsSold += item.quantity;
+          }
+        });
+      });
+
+      // Get wallet transactions
+      const transactions = designer.wallet?.transactions || [];
+      const totalCredits = transactions
+        .filter(t => t.type === 'credit' || t.type === 'refund' || t.type === 'cashback')
+        .reduce((sum, t) => sum + t.amount, 0);
       
+      const totalDebits = transactions
+        .filter(t => t.type === 'debit')
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      // Get recent transactions (last 5)
+      const recentTransactions = [...transactions]
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 5);
+
+      // Get recent products (last 5)
+      const recentProducts = await Product.find({ 
+        creatorId: designer._id,
+        createdBy: 'designer' 
+      })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select('name displayPrice approvalStatus isActive createdAt');
+
       return {
-        ...designer.toObject(),
-        productStats
+        _id: designer._id,
+        name: designer.name,
+        email: designer.email,
+        mobile: designer.mobile,
+        brandName: designer.brandName,
+        about: designer.about,
+        profileImage: designer.profileImage,
+        isVerified: designer.isVerified,
+        isActive: designer.isActive,
+        isApproved: designer.isApproved,
+        rejectionReason: designer.rejectionReason,
+        createdAt: designer.createdAt,
+        updatedAt: designer.updatedAt,
+        
+        // Product Stats
+        productStats,
+        totalProductsAdded: designer.totalProductsAdded || 0,
+        totalProductsSold: designer.totalProductsSold || 0,
+        
+        // Wallet
+        wallet: {
+          balance: designer.wallet?.balance || 0,
+          isActive: designer.wallet?.isActive !== undefined ? designer.wallet.isActive : true,
+          totalCredits,
+          totalDebits,
+          netBalance: totalCredits - totalDebits,
+          transactionCount: transactions.length,
+          recentTransactions: recentTransactions,
+          productFeePaid: designer.productFeePaid || 0,
+          cashbackReceived: designer.cashbackReceived || 0
+        },
+        
+        // Sales
+        sales: {
+          totalOrders,
+          totalItemsSold,
+          totalSales
+        },
+        
+        // Recent Products
+        recentProducts,
+        
+        // Status
+        status: designer.isApproved ? 'approved' : 'pending'
       };
     }));
-    
+
+    // Get overall statistics
+    const overallStats = {
+      totalDesigners: await Designer.countDocuments(),
+      pendingApproval: await Designer.countDocuments({ isApproved: false }),
+      approved: await Designer.countDocuments({ isApproved: true }),
+      active: await Designer.countDocuments({ isActive: true }),
+      totalProducts: await Product.countDocuments({ createdBy: 'designer' }),
+      totalSales: await Order.countDocuments({
+        'items.productId': { $in: await Product.find({ createdBy: 'designer' }).distinct('_id') }
+      })
+    };
+
     return res.status(200).json({
       success: true,
       count: designersWithStats.length,
+      total,
+      page: pageNum,
+      pages: Math.ceil(total / limitNum),
+      stats: overallStats,
       designers: designersWithStats
     });
-    
+
   } catch (error) {
     console.error('getAllDesigners error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==================== GET PENDING DESIGNERS ====================
+
+export const getPendingDesigners = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, search } = req.query;
+
+    const query = { isApproved: false };
+    
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { mobile: { $regex: search, $options: 'i' } },
+        { brandName: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const pageNum = parseInt(page) || 1;
+    const limitNum = parseInt(limit) || 20;
+    const skip = (pageNum - 1) * limitNum;
+
+    const designers = await Designer.find(query)
+      .select('-otp -otpExpires -authToken -authTokenExpires')
+      .sort({ createdAt: 1 }) // Oldest first (waiting longest)
+      .skip(skip)
+      .limit(limitNum);
+
+    const total = await Designer.countDocuments(query);
+
+    // Get stats for each pending designer
+    const designersWithStats = await Promise.all(designers.map(async (designer) => {
+      const productStats = {
+        total: await Product.countDocuments({ 
+          creatorId: designer._id, 
+          createdBy: 'designer' 
+        }),
+        pending: await Product.countDocuments({ 
+          creatorId: designer._id, 
+          approvalStatus: 'pending' 
+        }),
+        approved: await Product.countDocuments({ 
+          creatorId: designer._id, 
+          approvalStatus: 'approved' 
+        }),
+        rejected: await Product.countDocuments({ 
+          creatorId: designer._id, 
+          approvalStatus: 'rejected' 
+        })
+      };
+
+      // Calculate waiting time
+      const waitingDays = Math.floor((Date.now() - new Date(designer.createdAt)) / (1000 * 60 * 60 * 24));
+
+      return {
+        _id: designer._id,
+        name: designer.name,
+        email: designer.email,
+        mobile: designer.mobile,
+        brandName: designer.brandName,
+        about: designer.about,
+        profileImage: designer.profileImage,
+        isVerified: designer.isVerified,
+        isActive: designer.isActive,
+        isApproved: designer.isApproved,
+        rejectionReason: designer.rejectionReason,
+        createdAt: designer.createdAt,
+        updatedAt: designer.updatedAt,
+        waitingDays,
+        productStats,
+        walletBalance: designer.wallet?.balance || 0
+      };
+    }));
+
+    return res.status(200).json({
+      success: true,
+      count: designersWithStats.length,
+      total,
+      page: pageNum,
+      pages: Math.ceil(total / limitNum),
+      pendingDesigners: designersWithStats
+    });
+
+  } catch (error) {
+    console.error('getPendingDesigners error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -5301,6 +5602,46 @@ export const rejectDesigner = async (req, res) => {
 };
 
 // Get single designer details
+// export const getDesignerDetails = async (req, res) => {
+//   try {
+//     const { designerId } = req.params;
+
+//     const designer = await Designer.findById(designerId)
+//       .select('-otp -otpExpires -authToken -authTokenExpires');
+
+//     if (!designer) {
+//       return res.status(404).json({ success: false, message: 'Designer not found' });
+//     }
+
+//     const products = await Product.find({ 
+//       creatorId: designerId,
+//       createdBy: 'designer'
+//     }).sort({ createdAt: -1 });
+
+//     const stats = {
+//       totalProducts: products.length,
+//       pending: products.filter(p => p.approvalStatus === 'pending').length,
+//       approved: products.filter(p => p.approvalStatus === 'approved').length,
+//       rejected: products.filter(p => p.approvalStatus === 'rejected').length,
+//       active: products.filter(p => p.isActive === true).length
+//     };
+
+//     return res.status(200).json({
+//       success: true,
+//       designer: {
+//         ...designer.toObject(),
+//         walletBalance: designer.wallet?.balance || 0
+//       },
+//       stats,
+//       products
+//     });
+
+//   } catch (error) {
+//     console.error('getDesignerDetails error:', error);
+//     return res.status(500).json({ success: false, message: error.message });
+//   }
+// };
+
 export const getDesignerDetails = async (req, res) => {
   try {
     const { designerId } = req.params;
@@ -5312,11 +5653,13 @@ export const getDesignerDetails = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Designer not found' });
     }
 
+    // ==================== PRODUCTS WITH DETAILS ====================
     const products = await Product.find({ 
       creatorId: designerId,
       createdBy: 'designer'
     }).sort({ createdAt: -1 });
 
+    // Product statistics
     const stats = {
       totalProducts: products.length,
       pending: products.filter(p => p.approvalStatus === 'pending').length,
@@ -5325,14 +5668,157 @@ export const getDesignerDetails = async (req, res) => {
       active: products.filter(p => p.isActive === true).length
     };
 
+    // Transform products with main images
+    const transformedProducts = products.map(product => {
+      const productObj = product.toObject();
+      
+      // Get main image from first variant
+      const firstVariant = productObj.variants?.[0];
+      const mainImage = firstVariant?.images?.[0] || productObj.mainImages?.[0] || null;
+      
+      // Extract all colors from variants
+      const colors = [...new Set(productObj.variants?.map(v => v.color) || [])];
+      
+      // Extract all sizes from variants
+      const sizes = [];
+      productObj.variants?.forEach(variant => {
+        variant.sizes?.forEach(size => {
+          if (!sizes.includes(size.size)) {
+            sizes.push(size.size);
+          }
+        });
+      });
+
+      return {
+        _id: productObj._id,
+        name: productObj.name,
+        description: productObj.description,
+        displayPrice: productObj.displayPrice,
+        displayActualPrice: productObj.displayActualPrice,
+        maxDiscount: productObj.maxDiscount,
+        mainImage: mainImage,
+        colors: colors,
+        sizes: sizes,
+        variantsCount: productObj.variants?.length || 0,
+        totalStock: productObj.totalStock || 0,
+        approvalStatus: productObj.approvalStatus,
+        isActive: productObj.isActive,
+        rejectionReason: productObj.rejectionReason,
+        createdAt: productObj.createdAt,
+        updatedAt: productObj.updatedAt
+      };
+    });
+
+    // ==================== WALLET DETAILS ====================
+    const transactions = designer.wallet?.transactions || [];
+    const totalCredits = transactions
+      .filter(t => t.type === 'credit' || t.type === 'refund' || t.type === 'cashback')
+      .reduce((sum, t) => sum + t.amount, 0);
+    
+    const totalDebits = transactions
+      .filter(t => t.type === 'debit')
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    // Recent transactions (last 10)
+    const recentTransactions = [...transactions]
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, 10);
+
+    // ==================== SALES & ORDERS ====================
+    const designerProducts = await Product.find({ 
+      creatorId: designerId 
+    }).select('_id');
+    const productIds = designerProducts.map(p => p._id);
+
+    const orders = await Order.find({
+      'items.productId': { $in: productIds }
+    })
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .populate('userId', 'name email mobile');
+
+    let totalSales = 0;
+    let totalOrders = orders.length;
+    let totalItemsSold = 0;
+
+    orders.forEach(order => {
+      order.items.forEach(item => {
+        if (productIds.some(id => id.toString() === item.productId.toString())) {
+          totalSales += item.price * item.quantity;
+          totalItemsSold += item.quantity;
+        }
+      });
+    });
+
+    // ==================== RESPONSE ====================
     return res.status(200).json({
       success: true,
-      designer: {
-        ...designer.toObject(),
-        walletBalance: designer.wallet?.balance || 0
-      },
-      stats,
-      products
+      data: {
+        // Designer Profile
+        designer: {
+          _id: designer._id,
+          name: designer.name,
+          email: designer.email,
+          mobile: designer.mobile,
+          brandName: designer.brandName,
+          about: designer.about,
+          profileImage: designer.profileImage,
+          isVerified: designer.isVerified,
+          isActive: designer.isActive,
+          isApproved: designer.isApproved,
+          rejectionReason: designer.rejectionReason,
+          createdAt: designer.createdAt,
+          updatedAt: designer.updatedAt
+        },
+        
+        // Wallet
+        wallet: {
+          balance: designer.wallet?.balance || 0,
+          isActive: designer.wallet?.isActive !== undefined ? designer.wallet.isActive : true,
+          totalCredits: totalCredits,
+          totalDebits: totalDebits,
+          netBalance: totalCredits - totalDebits,
+          transactionCount: transactions.length,
+          productFeePaid: designer.productFeePaid || 0,
+          cashbackReceived: designer.cashbackReceived || 0,
+          recentTransactions: recentTransactions.map(t => ({
+            id: t._id,
+            type: t.type,
+            amount: t.amount,
+            description: t.description,
+            referenceId: t.referenceId,
+            referenceType: t.referenceType,
+            status: t.status,
+            balance: t.balance,
+            createdAt: t.createdAt
+          }))
+        },
+        
+        // Products
+        products: {
+          stats: stats,
+          data: transformedProducts,
+          recent: transformedProducts.slice(0, 5)
+        },
+        
+        // Sales Summary
+        sales: {
+          totalOrders: await Order.countDocuments({
+            'items.productId': { $in: productIds }
+          }),
+          totalItemsSold: totalItemsSold,
+          totalSales: totalSales,
+          recentOrders: orders.map(order => ({
+            _id: order._id,
+            orderId: order.orderId,
+            orderStatus: order.orderStatus,
+            paymentStatus: order.paymentStatus,
+            finalAmount: order.finalAmount,
+            customer: order.userId,
+            createdAt: order.createdAt
+          }))
+        }
+      }
     });
 
   } catch (error) {
@@ -5340,59 +5826,6 @@ export const getDesignerDetails = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
-
-// // Get designer details with their products
-// export const getDesignerDetails = async (req, res) => {
-//   try {
-//     const { designerId } = req.params;
-    
-//     const designer = await User.findById(designerId)
-//       .select('-otp -otpExpires -authToken -authTokenExpires -deleteToken -deleteTokenExpiration');
-    
-//     if (!designer) {
-//       return res.status(404).json({
-//         success: false,
-//         message: 'Designer not found'
-//       });
-//     }
-    
-//     const products = await Product.find({ 
-//       creatorId: designerId,
-//       createdBy: 'designer'
-//     })
-//       .sort({ createdAt: -1 })
-//       .select('name displayPrice approvalStatus isActive rejectionReason createdAt');
-    
-//     const stats = {
-//       totalProducts: products.length,
-//       pending: products.filter(p => p.approvalStatus === 'pending').length,
-//       approved: products.filter(p => p.approvalStatus === 'approved').length,
-//       rejected: products.filter(p => p.approvalStatus === 'rejected').length,
-//       active: products.filter(p => p.isActive === true).length
-//     };
-    
-//     return res.status(200).json({
-//       success: true,
-//       designer: {
-//         id: designer._id,
-//         name: designer.name,
-//         email: designer.email,
-//         mobile: designer.mobile,
-//         profileImage: designer.profileImage,
-//         about: designer.about,
-//         brandName: designer.brandName,
-//         isActive: designer.isActive,
-//         createdAt: designer.createdAt
-//       },
-//       stats,
-//       products
-//     });
-    
-//   } catch (error) {
-//     console.error('getDesignerDetails error:', error);
-//     return res.status(500).json({ success: false, message: error.message });
-//   }
-// };
 
 // Delete designer product (admin forced delete)
 export const adminDeleteDesignerProduct = async (req, res) => {
